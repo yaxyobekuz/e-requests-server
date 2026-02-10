@@ -3,16 +3,16 @@
 ## Setup
 
 1. Install dependencies:
-   
-	npm install
+
+   npm install
 
 2. Create an environment file:
-   
-	copy .env.example .env
+
+   copy .env.example .env
 
 3. Start development server:
-   
-	npm run dev
+
+   npm run dev
 
 ## Health Check
 

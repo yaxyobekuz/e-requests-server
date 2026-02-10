@@ -21,24 +21,24 @@ app.use(mongoSanitize());
 app.use(xss());
 
 const limiter = rateLimit({
-	windowMs: 60 * 1000,
-	max: 120,
-	standardHeaders: true,
-	legacyHeaders: false,
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 app.use(limiter);
 
 app.get("/health", (req, res) => {
-	res.status(200).json({ status: "ok" });
+  res.status(200).json({ status: "ok" });
 });
 
 app.use("/api", routes);
 
 const startServer = async () => {
-	await connectDB();
-	app.listen(config.PORT, () => {
-		console.log(`Server running on port ${config.PORT}`);
-	});
+  await connectDB();
+  app.listen(config.PORT, () => {
+    console.log(`Server running on port ${config.PORT}`);
+  });
 };
 
 startServer();
