@@ -12,8 +12,8 @@ const variables = {
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "30d",
 
   // Owner Account Settings
-  OWNER_USERNAME: process.env.OWNER_USERNAME || "admin",
-  OWNER_PASSWORD: process.env.OWNER_PASSWORD,
+  OWNER_PHONE: process.env.OWNER_PHONE || "+998901234567",
+  OWNER_PASSWORD: process.env.OWNER_PASSWORD || "owner123",
   OWNER_FIRSTNAME: process.env.OWNER_FIRSTNAME || "Admin",
 
   // Telegram Bot Settings
