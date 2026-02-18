@@ -28,6 +28,7 @@ const serviceReportSchema = new mongoose.Schema(
         "pending_confirmation",
         "confirmed",
         "rejected",
+        "cancelled",
       ],
       default: "unavailable",
     },
@@ -41,6 +42,10 @@ const serviceReportSchema = new mongoose.Schema(
       default: null,
     },
     rejectionReason: {
+      type: String,
+      default: "",
+    },
+    cancelReason: {
       type: String,
       default: "",
     },

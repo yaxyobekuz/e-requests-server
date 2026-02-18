@@ -134,6 +134,7 @@ const getAllReports = async (req, res) => {
         { "address.region": rid },
         { "address.district": rid },
         { "address.neighborhood": rid },
+        { "address.street": rid },
       ];
     }
 
@@ -142,7 +143,13 @@ const getAllReports = async (req, res) => {
         { "address.region": regionId },
         { "address.district": regionId },
         { "address.neighborhood": regionId },
+        { "address.street": regionId },
       ];
+    }
+
+    // Permission: ruxsat berilgan servis turlari bo'yicha filtrlash
+    if (req.allowedServiceTypes && req.allowedServiceTypes.length > 0) {
+      filter.service = { $in: req.allowedServiceTypes };
     }
 
     const skip = (Number(page) - 1) * Number(limit);
@@ -250,6 +257,37 @@ const confirmReport = async (req, res) => {
   }
 };
 
+/** PUT /api/service-reports/:id/cancel (user) */
+const cancelReport = async (req, res) => {
+  try {
+    const { cancelReason } = req.body;
+    const report = await ServiceReport.findOne({
+      _id: req.params.id,
+      user: req.user._id,
+    });
+
+    if (!report) {
+      return res.status(404).json({ message: "Hisobot topilmadi" });
+    }
+
+    if (["confirmed", "rejected", "cancelled"].includes(report.status)) {
+      return res.status(400).json({ message: "Bu hisobotni bekor qilib bo'lmaydi" });
+    }
+
+    report.status = "cancelled";
+    if (cancelReason) report.cancelReason = cancelReason.trim();
+    await report.save();
+
+    const populated = await ServiceReport.findById(report._id)
+      .populate("service", "name icon")
+      .populate("address.region address.district address.neighborhood address.street", "name");
+
+    res.json(populated);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
 /** GET /api/service-reports/stats */
 const getServiceStats = async (req, res) => {
   try {
@@ -268,13 +306,18 @@ const getServiceStats = async (req, res) => {
     // Admin uchun hudud cheklash
     if (req.user.role === "admin" && req.user.assignedRegion) {
       const rid = new mongoose.Types.ObjectId(req.user.assignedRegion.region.toString());
-      if (!matchFilter["address.region"] && !matchFilter["address.district"] && !matchFilter["address.neighborhood"]) {
+      if (!matchFilter["address.region"] && !matchFilter["address.district"] && !matchFilter["address.neighborhood"] && !matchFilter["address.street"]) {
         matchFilter["$or"] = [
           { "address.region": rid },
           { "address.district": rid },
           { "address.neighborhood": rid },
         ];
       }
+    }
+
+    // Permission: ruxsat berilgan servis turlari bo'yicha filtrlash
+    if (req.allowedServiceTypes && req.allowedServiceTypes.length > 0) {
+      matchFilter.service = { $in: req.allowedServiceTypes.map((id) => new mongoose.Types.ObjectId(id.toString())) };
     }
 
     if (serviceId) {
@@ -365,5 +408,6 @@ module.exports = {
   getAllReports,
   updateReportStatus,
   confirmReport,
+  cancelReport,
   getServiceStats,
 };
