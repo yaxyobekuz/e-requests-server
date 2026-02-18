@@ -10,6 +10,7 @@ router.use("/auth", require("./auth.routes"));
 router.use("/users", require("./user.routes"));
 router.use("/regions", require("./region.routes"));
 router.use("/requests", require("./request.routes"));
+router.use("/request-types", require("./request-type.routes"));
 router.use("/services", require("./service.routes"));
 router.use("/service-reports", require("./service-report.routes"));
 router.use("/msk", require("./msk.routes"));
