@@ -34,7 +34,7 @@ const requestSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "in_review", "resolved", "rejected"],
+      enum: ["pending", "in_review", "resolved", "rejected", "cancelled"],
       default: "pending",
     },
     rejectionReason: {
@@ -44,6 +44,15 @@ const requestSchema = new mongoose.Schema(
     closingNote: {
       type: String,
       default: "",
+    },
+    cancelReason: {
+      type: String,
+      default: "",
+    },
+    type: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "RequestType",
+      default: null,
     },
     assignedAdmin: {
       type: mongoose.Schema.Types.ObjectId,

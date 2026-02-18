@@ -79,11 +79,12 @@ const update = async (req, res) => {
 /** GET /api/requests (admin) */
 const getAll = async (req, res) => {
   try {
-    const { status, category, regionId, page = 1, limit = 20 } = req.query;
+    const { status, category, type, regionId, page = 1, limit = 20 } = req.query;
     const filter = {};
 
     if (status) filter.status = status;
     if (category) filter.category = category;
+    if (type) filter.type = type;
 
     if (req.user.role === "admin" && req.user.assignedRegion) {
       const rid = req.user.assignedRegion.region;
@@ -91,6 +92,7 @@ const getAll = async (req, res) => {
         { "address.region": rid },
         { "address.district": rid },
         { "address.neighborhood": rid },
+        { "address.street": rid },
       ];
     }
 
@@ -99,7 +101,13 @@ const getAll = async (req, res) => {
         { "address.region": regionId },
         { "address.district": regionId },
         { "address.neighborhood": regionId },
+        { "address.street": regionId },
       ];
+    }
+
+    // Permission: ruxsat berilgan murojaat turlari bo'yicha filtrlash
+    if (req.allowedTypes && req.allowedTypes.length > 0) {
+      filter.type = { $in: req.allowedTypes };
     }
 
     const skip = (Number(page) - 1) * Number(limit);
@@ -111,7 +119,8 @@ const getAll = async (req, res) => {
         .limit(Number(limit))
         .populate("user", "firstName lastName phone")
         .populate("address.region address.district address.neighborhood address.street", "name")
-        .populate("assignedAdmin", "firstName alias"),
+        .populate("assignedAdmin", "firstName alias")
+        .populate("type", "name"),
       Request.countDocuments(filter),
     ]);
 
@@ -124,7 +133,7 @@ const getAll = async (req, res) => {
 /** PUT /api/requests/:id/status (admin) */
 const updateStatus = async (req, res) => {
   try {
-    const { status, rejectionReason, closingNote } = req.body;
+    const { status, rejectionReason, closingNote, type } = req.body;
     const request = await Request.findById(req.params.id);
 
     if (!request) {
@@ -139,15 +148,44 @@ const updateStatus = async (req, res) => {
     if (status === "in_review") request.assignedAdmin = req.user._id;
     if (rejectionReason) request.rejectionReason = rejectionReason;
     if (closingNote) request.closingNote = closingNote;
+    if (type !== undefined) request.type = type || null;
 
     await request.save();
 
     const populated = await Request.findById(request._id)
       .populate("user", "firstName lastName phone")
       .populate("address.region address.district address.neighborhood address.street", "name")
-      .populate("assignedAdmin", "firstName alias");
+      .populate("assignedAdmin", "firstName alias")
+      .populate("type", "name");
 
     res.json(populated);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
+/** PUT /api/requests/:id/cancel (user) */
+const cancelRequest = async (req, res) => {
+  try {
+    const { cancelReason } = req.body;
+    const request = await Request.findOne({
+      _id: req.params.id,
+      user: req.user._id,
+    });
+
+    if (!request) {
+      return res.status(404).json({ message: "Murojaat topilmadi" });
+    }
+
+    if (["resolved", "rejected", "cancelled"].includes(request.status)) {
+      return res.status(400).json({ message: "Bu murojaatni bekor qilib bo'lmaydi" });
+    }
+
+    request.status = "cancelled";
+    if (cancelReason) request.cancelReason = cancelReason.trim();
+    await request.save();
+
+    res.json(request);
   } catch (error) {
     res.status(500).json({ message: "Serverda xatolik yuz berdi" });
   }
@@ -164,6 +202,7 @@ const getStats = async (req, res) => {
         { "address.region": require("mongoose").Types.ObjectId.createFromHexString(regionId) },
         { "address.district": require("mongoose").Types.ObjectId.createFromHexString(regionId) },
         { "address.neighborhood": require("mongoose").Types.ObjectId.createFromHexString(regionId) },
+        { "address.street": require("mongoose").Types.ObjectId.createFromHexString(regionId) },
       ];
     } else if (req.user.role === "admin" && req.user.assignedRegion) {
       const rid = require("mongoose").Types.ObjectId.createFromHexString(req.user.assignedRegion.region.toString());
@@ -171,7 +210,13 @@ const getStats = async (req, res) => {
         { "address.region": rid },
         { "address.district": rid },
         { "address.neighborhood": rid },
+        { "address.street": rid },
       ];
+    }
+
+    // Permission: ruxsat berilgan murojaat turlari bo'yicha filtrlash
+    if (req.allowedTypes && req.allowedTypes.length > 0) {
+      match.type = { $in: req.allowedTypes.map((id) => require("mongoose").Types.ObjectId.createFromHexString(id.toString())) };
     }
 
     const stats = await Request.aggregate([
@@ -198,4 +243,4 @@ const getStats = async (req, res) => {
   }
 };
 
-module.exports = { create, getMyRequests, update, getAll, updateStatus, getStats };
+module.exports = { create, getMyRequests, update, getAll, updateStatus, cancelRequest, getStats };
