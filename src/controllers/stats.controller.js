@@ -15,6 +15,7 @@ const getDashboard = async (req, res) => {
         { "address.region": rid },
         { "address.district": rid },
         { "address.neighborhood": rid },
+        { "address.street": rid },
       ];
     }
 
