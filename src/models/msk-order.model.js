@@ -44,10 +44,14 @@ const mskOrderSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "in_review", "resolved", "confirmed", "rejected"],
+      enum: ["pending", "in_review", "resolved", "confirmed", "rejected", "cancelled"],
       default: "pending",
     },
     rejectionReason: {
+      type: String,
+      default: "",
+    },
+    cancelReason: {
       type: String,
       default: "",
     },

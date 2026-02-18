@@ -165,6 +165,7 @@ const getAllOrders = async (req, res) => {
         { "address.region": rid },
         { "address.district": rid },
         { "address.neighborhood": rid },
+        { "address.street": rid },
       ];
     }
 
@@ -173,7 +174,13 @@ const getAllOrders = async (req, res) => {
         { "address.region": regionId },
         { "address.district": regionId },
         { "address.neighborhood": regionId },
+        { "address.street": regionId },
       ];
+    }
+
+    // Permission: ruxsat berilgan MSK kategoriyalari bo'yicha filtrlash
+    if (req.allowedMskCategories && req.allowedMskCategories.length > 0) {
+      filter.category = { $in: req.allowedMskCategories };
     }
 
     const skip = (Number(page) - 1) * Number(limit);
@@ -254,6 +261,33 @@ const confirmOrder = async (req, res) => {
   }
 };
 
+/** PUT /api/msk/orders/:id/cancel (user) */
+const cancelOrder = async (req, res) => {
+  try {
+    const { cancelReason } = req.body;
+    const order = await MskOrder.findOne({
+      _id: req.params.id,
+      user: req.user._id,
+    });
+
+    if (!order) {
+      return res.status(404).json({ message: "Buyurtma topilmadi" });
+    }
+
+    if (["resolved", "confirmed", "rejected", "cancelled"].includes(order.status)) {
+      return res.status(400).json({ message: "Bu buyurtmani bekor qilib bo'lmaydi" });
+    }
+
+    order.status = "cancelled";
+    if (cancelReason) order.cancelReason = cancelReason.trim();
+    await order.save();
+
+    res.json(order);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
 module.exports = {
   getCategories,
   createCategory,
@@ -265,4 +299,5 @@ module.exports = {
   getAllOrders,
   updateOrderStatus,
   confirmOrder,
+  cancelOrder,
 };
