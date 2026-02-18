@@ -105,4 +105,48 @@ const setRegion = async (req, res) => {
   }
 };
 
-module.exports = { getAll, create, update, remove, setRegion };
+/** GET /api/admins/:id */
+const getById = async (req, res) => {
+  try {
+    const admin = await User.findOne({ _id: req.params.id, role: "admin" })
+      .populate("assignedRegion.region", "name type")
+      .populate("permissions.requests.allowedTypes", "name")
+      .populate("permissions.services.allowedTypes", "name icon")
+      .populate("permissions.msk.allowedCategories", "name icon");
+
+    if (!admin) {
+      return res.status(404).json({ message: "Admin topilmadi" });
+    }
+
+    res.json(admin);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
+/** PUT /api/admins/:id/permissions */
+const updatePermissions = async (req, res) => {
+  try {
+    const { permissions } = req.body;
+    const admin = await User.findOne({ _id: req.params.id, role: "admin" });
+
+    if (!admin) {
+      return res.status(404).json({ message: "Admin topilmadi" });
+    }
+
+    admin.permissions = permissions;
+    await admin.save();
+
+    const populated = await User.findById(admin._id)
+      .populate("assignedRegion.region", "name type")
+      .populate("permissions.requests.allowedTypes", "name")
+      .populate("permissions.services.allowedTypes", "name icon")
+      .populate("permissions.msk.allowedCategories", "name icon");
+
+    res.json(populated);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
+module.exports = { getAll, getById, create, update, remove, setRegion, updatePermissions };

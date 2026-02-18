@@ -10,7 +10,7 @@ const assignedRegionSchema = new mongoose.Schema(
     },
     regionType: {
       type: String,
-      enum: ["region", "district", "neighborhood"],
+      enum: ["region", "district", "neighborhood", "street"],
       required: true,
     },
   },
@@ -32,6 +32,36 @@ const addressSchema = new mongoose.Schema(
     },
     houseNumber: { type: String, default: "" },
     apartment: { type: String, default: "" },
+  },
+  { _id: false },
+);
+
+const permissionsSchema = new mongoose.Schema(
+  {
+    requests: {
+      access: {
+        type: String,
+        enum: ["off", "read", "manage"],
+        default: "manage",
+      },
+      allowedTypes: [{ type: mongoose.Schema.Types.ObjectId, ref: "RequestType" }],
+    },
+    services: {
+      access: {
+        type: String,
+        enum: ["off", "read", "manage"],
+        default: "manage",
+      },
+      allowedTypes: [{ type: mongoose.Schema.Types.ObjectId, ref: "Service" }],
+    },
+    msk: {
+      access: {
+        type: String,
+        enum: ["off", "read", "manage"],
+        default: "manage",
+      },
+      allowedCategories: [{ type: mongoose.Schema.Types.ObjectId, ref: "MskCategory" }],
+    },
   },
   { _id: false },
 );
@@ -76,6 +106,10 @@ const userSchema = new mongoose.Schema(
     assignedRegion: {
       type: assignedRegionSchema,
       default: null,
+    },
+    permissions: {
+      type: permissionsSchema,
+      default: () => ({}),
     },
   },
   {
