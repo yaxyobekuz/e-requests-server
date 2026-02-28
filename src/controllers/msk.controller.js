@@ -213,6 +213,19 @@ const updateOrderStatus = async (req, res) => {
       return res.status(404).json({ message: "Buyurtma topilmadi" });
     }
 
+    const allowedTransitions = {
+      pending: ["in_review", "pending_confirmation", "rejected"],
+      in_review: ["pending", "pending_confirmation", "rejected"],
+      pending_confirmation: ["pending", "in_review", "rejected"],
+    };
+
+    const allowed = allowedTransitions[order.status];
+    if (!allowed || !allowed.includes(status)) {
+      return res.status(400).json({
+        message: `"${order.status}" statusidan "${status}" statusiga o'tish mumkin emas`,
+      });
+    }
+
     if (status === "rejected" && !rejectionReason) {
       return res.status(400).json({ message: "Rad etish sababi kiritilishi shart" });
     }
@@ -247,12 +260,12 @@ const confirmOrder = async (req, res) => {
       return res.status(404).json({ message: "Buyurtma topilmadi" });
     }
 
-    if (order.status !== "resolved") {
-      return res.status(400).json({ message: "Faqat 'Bajarildi' statusidagi buyurtmalarni tasdiqlash mumkin" });
+    if (order.status !== "pending_confirmation") {
+      return res.status(400).json({ message: "Faqat 'Tasdiq kutilmoqda' statusidagi buyurtmalarni tasdiqlash mumkin" });
     }
 
     order.confirmedByUser = confirmed;
-    order.status = confirmed ? "confirmed" : "rejected";
+    order.status = confirmed ? "confirmed" : "in_review";
     await order.save();
 
     res.json(order);
@@ -274,7 +287,7 @@ const cancelOrder = async (req, res) => {
       return res.status(404).json({ message: "Buyurtma topilmadi" });
     }
 
-    if (["resolved", "confirmed", "rejected", "cancelled"].includes(order.status)) {
+    if (["pending_confirmation", "confirmed", "rejected", "cancelled"].includes(order.status)) {
       return res.status(400).json({ message: "Bu buyurtmani bekor qilib bo'lmaydi" });
     }
 
