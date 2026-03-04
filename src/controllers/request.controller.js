@@ -243,4 +243,23 @@ const getStats = async (req, res) => {
   }
 };
 
-module.exports = { create, getMyRequests, update, getAll, updateStatus, cancelRequest, getStats };
+/** GET /api/requests/:id */
+const getById = async (req, res) => {
+  try {
+    const request = await Request.findById(req.params.id)
+      .populate("user", "firstName lastName phone")
+      .populate("address.region address.district address.neighborhood address.street", "name")
+      .populate("assignedAdmin", "firstName alias")
+      .populate("type", "name");
+
+    if (!request) {
+      return res.status(404).json({ message: "Murojaat topilmadi" });
+    }
+
+    res.json(request);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
+module.exports = { create, getMyRequests, update, getAll, updateStatus, cancelRequest, getStats, getById };
