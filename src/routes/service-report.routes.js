@@ -3,6 +3,7 @@ const {
   createReport,
   getMyReports,
   getAllReports,
+  getReportById,
   updateReportStatus,
   confirmReport,
   cancelReport,
@@ -15,6 +16,7 @@ router.post("/", protect, authorize("user"), createReport);
 router.get("/my", protect, authorize("user"), getMyReports);
 router.get("/stats", protect, authorize("owner", "admin"), checkPermission("services", "read"), getServiceStats);
 router.get("/", protect, authorize("owner", "admin"), checkPermission("services", "read"), getAllReports);
+router.get("/:id", protect, authorize("owner", "admin", "user"), getReportById);
 router.put("/:id/status", protect, authorize("owner", "admin"), checkPermission("services", "manage"), updateReportStatus);
 router.put("/:id/confirm", protect, authorize("user"), confirmReport);
 router.put("/:id/cancel", protect, authorize("user"), cancelReport);

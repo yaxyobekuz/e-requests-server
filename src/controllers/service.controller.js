@@ -398,6 +398,32 @@ const getServiceStats = async (req, res) => {
   }
 };
 
+/** GET /api/service-reports/:id */
+const getReportById = async (req, res) => {
+  try {
+    const report = await ServiceReport.findById(req.params.id)
+      .populate("service", "name icon")
+      .populate("user", "firstName phone")
+      .populate("address.region address.district address.neighborhood address.street", "name")
+      .populate("resolvedByAdmin", "firstName alias");
+
+    if (!report) {
+      return res.status(404).json({ message: "Hisobot topilmadi" });
+    }
+
+    const isAdmin = ["owner", "admin"].includes(req.user.role);
+    const isOwner = report.user._id.toString() === req.user._id.toString();
+
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({ message: "Ruxsat yo'q" });
+    }
+
+    res.json(report);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
 module.exports = {
   getAll,
   create,
@@ -406,6 +432,7 @@ module.exports = {
   createReport,
   getMyReports,
   getAllReports,
+  getReportById,
   updateReportStatus,
   confirmReport,
   cancelReport,
