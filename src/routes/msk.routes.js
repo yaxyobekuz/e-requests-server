@@ -8,6 +8,7 @@ const {
   updateOrder,
   getMyOrders,
   getAllOrders,
+  getOrderById,
   updateOrderStatus,
   confirmOrder,
   cancelOrder,
@@ -26,6 +27,7 @@ router.post("/orders", protect, authorize("user"), createOrder);
 router.get("/orders/my", protect, authorize("user"), getMyOrders);
 router.put("/orders/:id", protect, authorize("user"), updateOrder);
 router.get("/orders", protect, authorize("owner", "admin"), checkPermission("msk", "read"), getAllOrders);
+router.get("/orders/:id", protect, authorize("owner", "admin", "user"), getOrderById);
 router.put("/orders/:id/status", protect, authorize("owner", "admin"), checkPermission("msk", "manage"), updateOrderStatus);
 router.put("/orders/:id/confirm", protect, authorize("user"), confirmOrder);
 router.put("/orders/:id/cancel", protect, authorize("user"), cancelOrder);
