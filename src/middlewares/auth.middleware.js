@@ -70,4 +70,20 @@ const checkRegionAccess = (accessLevel = "read") => {
   };
 };
 
-module.exports = { protect, authorize, checkRegionAccess };
+/**
+ * Owner yoki canManageAdmins=true bo'lgan admin o'ta oladi.
+ * Delegat admin uchun req.isDelegatedManager = true o'rnatiladi.
+ */
+const authorizeAdminManager = (req, res, next) => {
+  if (req.user.role === "owner") {
+    req.isDelegatedManager = false;
+    return next();
+  }
+  if (req.user.role === "admin" && req.user.canManageAdmins === true) {
+    req.isDelegatedManager = true;
+    return next();
+  }
+  return res.status(403).json({ message: "Ruxsat berilmagan" });
+};
+
+module.exports = { protect, authorize, checkRegionAccess, authorizeAdminManager };
