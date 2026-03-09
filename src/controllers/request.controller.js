@@ -79,7 +79,7 @@ const update = async (req, res) => {
 /** GET /api/requests (admin) */
 const getAll = async (req, res) => {
   try {
-    const { status, category, type, regionId, page = 1, limit = 20 } = req.query;
+    const { status, category, type, regionId, deadlineStatus, deadlineDays, page = 1, limit = 20 } = req.query;
     const filter = {};
 
     if (status) filter.status = status;
@@ -108,6 +108,41 @@ const getAll = async (req, res) => {
     // Permission: ruxsat berilgan murojaat turlari bo'yicha filtrlash
     if (req.allowedTypes && req.allowedTypes.length > 0) {
       filter.type = { $in: req.allowedTypes };
+    }
+
+    // Ijro muddati filtri
+    if (deadlineStatus && deadlineDays) {
+      const days = Number(deadlineDays);
+      const WARN_DAYS = 5;
+      const now = new Date();
+      const terminalStatuses = ["resolved", "rejected", "cancelled"];
+
+      if (!status) {
+        if (deadlineStatus === "overdue") {
+          filter.createdAt = { $lte: new Date(now - days * 86400000) };
+          filter.status = { $nin: terminalStatuses };
+        } else if (deadlineStatus === "approaching") {
+          filter.createdAt = {
+            $gt: new Date(now - days * 86400000),
+            $lte: new Date(now - (days - WARN_DAYS) * 86400000),
+          };
+          filter.status = { $nin: terminalStatuses };
+        } else if (deadlineStatus === "ok") {
+          filter.createdAt = { $gt: new Date(now - (days - WARN_DAYS) * 86400000) };
+          filter.status = { $nin: terminalStatuses };
+        }
+      } else {
+        if (deadlineStatus === "overdue") {
+          filter.createdAt = { $lte: new Date(now - days * 86400000) };
+        } else if (deadlineStatus === "approaching") {
+          filter.createdAt = {
+            $gt: new Date(now - days * 86400000),
+            $lte: new Date(now - (days - WARN_DAYS) * 86400000),
+          };
+        } else if (deadlineStatus === "ok") {
+          filter.createdAt = { $gt: new Date(now - (days - WARN_DAYS) * 86400000) };
+        }
+      }
     }
 
     const skip = (Number(page) - 1) * Number(limit);
@@ -191,58 +226,6 @@ const cancelRequest = async (req, res) => {
   }
 };
 
-/** GET /api/requests/stats */
-const getStats = async (req, res) => {
-  try {
-    const { regionId } = req.query;
-    const match = {};
-
-    if (regionId) {
-      match["$or"] = [
-        { "address.region": require("mongoose").Types.ObjectId.createFromHexString(regionId) },
-        { "address.district": require("mongoose").Types.ObjectId.createFromHexString(regionId) },
-        { "address.neighborhood": require("mongoose").Types.ObjectId.createFromHexString(regionId) },
-        { "address.street": require("mongoose").Types.ObjectId.createFromHexString(regionId) },
-      ];
-    } else if (req.user.role === "admin" && req.user.assignedRegion) {
-      const rid = require("mongoose").Types.ObjectId.createFromHexString(req.user.assignedRegion.region.toString());
-      match["$or"] = [
-        { "address.region": rid },
-        { "address.district": rid },
-        { "address.neighborhood": rid },
-        { "address.street": rid },
-      ];
-    }
-
-    // Permission: ruxsat berilgan murojaat turlari bo'yicha filtrlash
-    if (req.allowedTypes && req.allowedTypes.length > 0) {
-      match.type = { $in: req.allowedTypes.map((id) => require("mongoose").Types.ObjectId.createFromHexString(id.toString())) };
-    }
-
-    const stats = await Request.aggregate([
-      { $match: match },
-      { $group: { _id: "$status", count: { $sum: 1 } } },
-    ]);
-
-    const result = {
-      total: 0,
-      pending: 0,
-      in_review: 0,
-      resolved: 0,
-      rejected: 0,
-    };
-
-    stats.forEach((s) => {
-      result[s._id] = s.count;
-      result.total += s.count;
-    });
-
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
-  }
-};
-
 /** GET /api/requests/:id */
 const getById = async (req, res) => {
   try {
@@ -262,4 +245,4 @@ const getById = async (req, res) => {
   }
 };
 
-module.exports = { create, getMyRequests, update, getAll, updateStatus, cancelRequest, getStats, getById };
+module.exports = { create, getMyRequests, update, getAll, updateStatus, cancelRequest, getById };

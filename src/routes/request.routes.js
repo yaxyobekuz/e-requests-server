@@ -5,7 +5,6 @@ const {
   update,
   getAll,
   updateStatus,
-  getStats,
   cancelRequest,
   getById,
 } = require("../controllers/request.controller");
@@ -16,7 +15,6 @@ router.post("/", protect, authorize("user"), create);
 router.get("/my", protect, authorize("user"), getMyRequests);
 router.put("/:id", protect, authorize("user"), update);
 router.put("/:id/cancel", protect, authorize("user"), cancelRequest);
-router.get("/stats", protect, authorize("owner", "admin"), checkPermission("requests", "read"), getStats);
 router.get("/:id", protect, authorize("owner", "admin"), checkPermission("requests", "read"), getById);
 router.get("/", protect, authorize("owner", "admin"), checkPermission("requests", "read"), getAll);
 router.put("/:id/status", protect, authorize("owner", "admin"), checkPermission("requests", "manage"), updateStatus);
