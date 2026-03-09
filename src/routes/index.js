@@ -15,6 +15,7 @@ router.use("/services", require("./service.routes"));
 router.use("/service-reports", require("./service-report.routes"));
 router.use("/msk", require("./msk.routes"));
 router.use("/admins", require("./admin.routes"));
-router.use("/stats", require("./stats.routes"));
+router.use("/admin-roles", require("./admin-role.routes"));
+router.use("/settings", require("./settings.routes"));
 
 module.exports = router;
