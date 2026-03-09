@@ -111,6 +111,20 @@ const userSchema = new mongoose.Schema(
       type: permissionsSchema,
       default: () => ({}),
     },
+    adminRole: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "AdminRole",
+      default: null,
+    },
+    canManageAdmins: {
+      type: Boolean,
+      default: false,
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   {
     timestamps: true,
