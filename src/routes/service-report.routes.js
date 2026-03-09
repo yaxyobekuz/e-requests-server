@@ -7,14 +7,12 @@ const {
   updateReportStatus,
   confirmReport,
   cancelReport,
-  getServiceStats,
 } = require("../controllers/service.controller");
 const { protect, authorize } = require("../middlewares/auth.middleware");
 const { checkPermission } = require("../middlewares/permission.middleware");
 
 router.post("/", protect, authorize("user"), createReport);
 router.get("/my", protect, authorize("user"), getMyReports);
-router.get("/stats", protect, authorize("owner", "admin"), checkPermission("services", "read"), getServiceStats);
 router.get("/", protect, authorize("owner", "admin"), checkPermission("services", "read"), getAllReports);
 router.get("/:id", protect, authorize("owner", "admin", "user"), getReportById);
 router.put("/:id/status", protect, authorize("owner", "admin"), checkPermission("services", "manage"), updateReportStatus);

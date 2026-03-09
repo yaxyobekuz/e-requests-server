@@ -122,7 +122,7 @@ const getMyReports = async (req, res) => {
 /** GET /api/service-reports */
 const getAllReports = async (req, res) => {
   try {
-    const { serviceId, regionId, status, page = 1, limit = 20 } = req.query;
+    const { serviceId, regionId, status, deadlineStatus, deadlineDays, page = 1, limit = 20 } = req.query;
     const filter = {};
 
     if (serviceId) filter.service = serviceId;
@@ -150,6 +150,41 @@ const getAllReports = async (req, res) => {
     // Permission: ruxsat berilgan servis turlari bo'yicha filtrlash
     if (req.allowedServiceTypes && req.allowedServiceTypes.length > 0) {
       filter.service = { $in: req.allowedServiceTypes };
+    }
+
+    // Ijro muddati filtri
+    if (deadlineStatus && deadlineDays) {
+      const days = Number(deadlineDays);
+      const WARN_DAYS = 5;
+      const now = new Date();
+      const terminalStatuses = ["confirmed", "rejected", "cancelled"];
+
+      if (!status) {
+        if (deadlineStatus === "overdue") {
+          filter.createdAt = { $lte: new Date(now - days * 86400000) };
+          filter.status = { $nin: terminalStatuses };
+        } else if (deadlineStatus === "approaching") {
+          filter.createdAt = {
+            $gt: new Date(now - days * 86400000),
+            $lte: new Date(now - (days - WARN_DAYS) * 86400000),
+          };
+          filter.status = { $nin: terminalStatuses };
+        } else if (deadlineStatus === "ok") {
+          filter.createdAt = { $gt: new Date(now - (days - WARN_DAYS) * 86400000) };
+          filter.status = { $nin: terminalStatuses };
+        }
+      } else {
+        if (deadlineStatus === "overdue") {
+          filter.createdAt = { $lte: new Date(now - days * 86400000) };
+        } else if (deadlineStatus === "approaching") {
+          filter.createdAt = {
+            $gt: new Date(now - days * 86400000),
+            $lte: new Date(now - (days - WARN_DAYS) * 86400000),
+          };
+        } else if (deadlineStatus === "ok") {
+          filter.createdAt = { $gt: new Date(now - (days - WARN_DAYS) * 86400000) };
+        }
+      }
     }
 
     const skip = (Number(page) - 1) * Number(limit);
@@ -288,116 +323,6 @@ const cancelReport = async (req, res) => {
   }
 };
 
-/** GET /api/service-reports/stats */
-const getServiceStats = async (req, res) => {
-  try {
-    const { regionId, districtId, neighborhoodId, serviceId } = req.query;
-    const matchFilter = {};
-
-    // Hudud filtrlash
-    if (neighborhoodId) {
-      matchFilter["address.neighborhood"] = new mongoose.Types.ObjectId(neighborhoodId);
-    } else if (districtId) {
-      matchFilter["address.district"] = new mongoose.Types.ObjectId(districtId);
-    } else if (regionId) {
-      matchFilter["address.region"] = new mongoose.Types.ObjectId(regionId);
-    }
-
-    // Admin uchun hudud cheklash
-    if (req.user.role === "admin" && req.user.assignedRegion) {
-      const rid = new mongoose.Types.ObjectId(req.user.assignedRegion.region.toString());
-      if (!matchFilter["address.region"] && !matchFilter["address.district"] && !matchFilter["address.neighborhood"] && !matchFilter["address.street"]) {
-        matchFilter["$or"] = [
-          { "address.region": rid },
-          { "address.district": rid },
-          { "address.neighborhood": rid },
-        ];
-      }
-    }
-
-    // Permission: ruxsat berilgan servis turlari bo'yicha filtrlash
-    if (req.allowedServiceTypes && req.allowedServiceTypes.length > 0) {
-      matchFilter.service = { $in: req.allowedServiceTypes.map((id) => new mongoose.Types.ObjectId(id.toString())) };
-    }
-
-    if (serviceId) {
-      matchFilter.service = new mongoose.Types.ObjectId(serviceId);
-    }
-
-    const pipeline = [
-      ...(Object.keys(matchFilter).length > 0 ? [{ $match: matchFilter }] : []),
-      {
-        $group: {
-          _id: { service: "$service", status: "$status" },
-          count: { $sum: 1 },
-        },
-      },
-      {
-        $group: {
-          _id: "$_id.service",
-          statuses: { $push: { status: "$_id.status", count: "$count" } },
-          total: { $sum: "$count" },
-        },
-      },
-      {
-        $lookup: {
-          from: "services",
-          localField: "_id",
-          foreignField: "_id",
-          as: "service",
-        },
-      },
-      { $unwind: "$service" },
-      {
-        $project: {
-          _id: 1,
-          serviceName: "$service.name",
-          serviceIcon: "$service.icon",
-          total: 1,
-          statuses: 1,
-        },
-      },
-      { $sort: { serviceName: 1 } },
-    ];
-
-    const stats = await ServiceReport.aggregate(pipeline);
-
-    // Foiz hisoblash
-    const result = stats.map((item) => {
-      const statusMap = {};
-      item.statuses.forEach((s) => {
-        statusMap[s.status] = s.count;
-      });
-
-      const unavailable = statusMap.unavailable || 0;
-      const inProgress = statusMap.in_progress || 0;
-      const pendingConfirmation = statusMap.pending_confirmation || 0;
-      const confirmed = statusMap.confirmed || 0;
-      const rejected = statusMap.rejected || 0;
-      const problemCount = unavailable + inProgress + pendingConfirmation;
-
-      return {
-        serviceId: item._id,
-        serviceName: item.serviceName,
-        serviceIcon: item.serviceIcon,
-        total: item.total,
-        unavailable,
-        inProgress,
-        pendingConfirmation,
-        confirmed,
-        rejected,
-        problemCount,
-        problemPercent: item.total > 0 ? Math.round((problemCount / item.total) * 100) : 0,
-        availablePercent: item.total > 0 ? Math.round((confirmed / item.total) * 100) : 0,
-      };
-    });
-
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
-  }
-};
-
 /** GET /api/service-reports/:id */
 const getReportById = async (req, res) => {
   try {
@@ -436,5 +361,4 @@ module.exports = {
   updateReportStatus,
   confirmReport,
   cancelReport,
-  getServiceStats,
 };
