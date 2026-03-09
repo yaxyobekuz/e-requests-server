@@ -1,11 +1,30 @@
 const User = require("../models/user.model");
+const { validatePermissionsSubset } = require("../utils/permissions.util");
+
+const ADMIN_POPULATE = [
+  { path: "assignedRegion.region", select: "name type" },
+  { path: "adminRole", select: "name description" },
+];
+
+const ADMIN_DETAIL_POPULATE = [
+  { path: "assignedRegion.region", select: "name type" },
+  { path: "adminRole", select: "name description" },
+  { path: "permissions.requests.allowedTypes", select: "name" },
+  { path: "permissions.services.allowedTypes", select: "name icon" },
+  { path: "permissions.msk.allowedCategories", select: "name icon" },
+];
 
 /** GET /api/admins */
 const getAll = async (req, res) => {
   try {
-    const admins = await User.find({ role: "admin" })
+    const filter = { role: "admin" };
+    if (req.isDelegatedManager) {
+      filter.createdBy = req.user._id;
+    }
+
+    const admins = await User.find(filter)
       .sort({ createdAt: -1 })
-      .populate("assignedRegion.region", "name type");
+      .populate(ADMIN_POPULATE);
 
     res.json(admins);
   } catch (error) {
@@ -16,12 +35,16 @@ const getAll = async (req, res) => {
 /** POST /api/admins */
 const create = async (req, res) => {
   try {
-    const { phone, password, firstName, lastName, alias } = req.body;
+    const { phone, password, firstName, lastName, alias, adminRole, permissions, assignedRegion } = req.body;
 
     if (!phone || !password || !alias) {
       return res
         .status(400)
         .json({ message: "Telefon raqam, parol va tahallus kiritilishi shart" });
+    }
+
+    if (!adminRole) {
+      return res.status(400).json({ message: "Lavozim tanlanishi shart" });
     }
 
     const existing = await User.findOne({ phone });
@@ -31,16 +54,47 @@ const create = async (req, res) => {
         .json({ message: "Bu telefon raqam allaqachon ro'yxatdan o'tgan" });
     }
 
-    const admin = await User.create({
+    if (req.isDelegatedManager) {
+      // Permission subset tekshiruvi
+      if (permissions) {
+        const check = validatePermissionsSubset(permissions, req.user.permissions);
+        if (!check.valid) {
+          return res.status(403).json({ message: check.message });
+        }
+      }
+
+      // Region tekshiruvi: delegat admin faqat o'z hududi yoki uning quyi hududini bera oladi
+      if (assignedRegion && req.user.assignedRegion) {
+        const callerRegionId = req.user.assignedRegion.region.toString();
+        const requestedRegionId = assignedRegion.region?.toString() || assignedRegion.toString();
+        if (callerRegionId !== requestedRegionId) {
+          return res
+            .status(403)
+            .json({ message: "Siz faqat o'z hududingizni yoki uning quyi hududlarini tayinlay olasiz" });
+        }
+      }
+    }
+
+    const adminData = {
       phone,
       password,
       firstName: firstName || "",
       lastName: lastName || "",
       alias,
       role: "admin",
-    });
+      adminRole,
+    };
 
-    res.status(201).json(admin);
+    if (req.isDelegatedManager) {
+      adminData.createdBy = req.user._id;
+      adminData.canManageAdmins = false;
+      if (permissions) adminData.permissions = permissions;
+      if (assignedRegion) adminData.assignedRegion = assignedRegion;
+    }
+
+    const admin = await User.create(adminData);
+    const populated = await User.findById(admin._id).populate(ADMIN_POPULATE);
+    res.status(201).json(populated);
   } catch (error) {
     res.status(500).json({ message: "Serverda xatolik yuz berdi" });
   }
@@ -49,8 +103,13 @@ const create = async (req, res) => {
 /** PUT /api/admins/:id */
 const update = async (req, res) => {
   try {
+    const filter = { _id: req.params.id, role: "admin" };
+    if (req.isDelegatedManager) {
+      filter.createdBy = req.user._id;
+    }
+
     const { firstName, lastName, alias, isActive, password } = req.body;
-    const admin = await User.findOne({ _id: req.params.id, role: "admin" });
+    const admin = await User.findOne(filter);
 
     if (!admin) {
       return res.status(404).json({ message: "Admin topilmadi" });
@@ -63,7 +122,8 @@ const update = async (req, res) => {
     if (password) admin.password = password;
 
     await admin.save();
-    res.json(admin);
+    const populated = await User.findById(admin._id).populate(ADMIN_POPULATE);
+    res.json(populated);
   } catch (error) {
     res.status(500).json({ message: "Serverda xatolik yuz berdi" });
   }
@@ -72,7 +132,12 @@ const update = async (req, res) => {
 /** DELETE /api/admins/:id */
 const remove = async (req, res) => {
   try {
-    const admin = await User.findOne({ _id: req.params.id, role: "admin" });
+    const filter = { _id: req.params.id, role: "admin" };
+    if (req.isDelegatedManager) {
+      filter.createdBy = req.user._id;
+    }
+
+    const admin = await User.findOne(filter);
     if (!admin) {
       return res.status(404).json({ message: "Admin topilmadi" });
     }
@@ -89,11 +154,27 @@ const setRegion = async (req, res) => {
   try {
     const { assignedRegion } = req.body;
 
+    const filter = { _id: req.params.id, role: "admin" };
+    if (req.isDelegatedManager) {
+      filter.createdBy = req.user._id;
+
+      // Delegat admin faqat o'z hududini bera oladi
+      if (assignedRegion && req.user.assignedRegion) {
+        const callerRegionId = req.user.assignedRegion.region.toString();
+        const requestedRegionId = assignedRegion.region?.toString() || assignedRegion.toString();
+        if (callerRegionId !== requestedRegionId) {
+          return res
+            .status(403)
+            .json({ message: "Siz faqat o'z hududingizni tayinlay olasiz" });
+        }
+      }
+    }
+
     const admin = await User.findOneAndUpdate(
-      { _id: req.params.id, role: "admin" },
+      filter,
       { $set: { assignedRegion: assignedRegion || null } },
       { new: true },
-    ).populate("assignedRegion.region", "name type");
+    ).populate(ADMIN_POPULATE);
 
     if (!admin) {
       return res.status(404).json({ message: "Admin topilmadi" });
@@ -108,11 +189,12 @@ const setRegion = async (req, res) => {
 /** GET /api/admins/:id */
 const getById = async (req, res) => {
   try {
-    const admin = await User.findOne({ _id: req.params.id, role: "admin" })
-      .populate("assignedRegion.region", "name type")
-      .populate("permissions.requests.allowedTypes", "name")
-      .populate("permissions.services.allowedTypes", "name icon")
-      .populate("permissions.msk.allowedCategories", "name icon");
+    const filter = { _id: req.params.id, role: "admin" };
+    if (req.isDelegatedManager) {
+      filter.createdBy = req.user._id;
+    }
+
+    const admin = await User.findOne(filter).populate(ADMIN_DETAIL_POPULATE);
 
     if (!admin) {
       return res.status(404).json({ message: "Admin topilmadi" });
@@ -128,25 +210,52 @@ const getById = async (req, res) => {
 const updatePermissions = async (req, res) => {
   try {
     const { permissions } = req.body;
-    const admin = await User.findOne({ _id: req.params.id, role: "admin" });
+    const filter = { _id: req.params.id, role: "admin" };
+    if (req.isDelegatedManager) {
+      filter.createdBy = req.user._id;
+    }
+
+    const admin = await User.findOne(filter);
 
     if (!admin) {
       return res.status(404).json({ message: "Admin topilmadi" });
     }
 
+    if (req.isDelegatedManager && permissions) {
+      const check = validatePermissionsSubset(permissions, req.user.permissions);
+      if (!check.valid) {
+        return res.status(403).json({ message: check.message });
+      }
+    }
+
     admin.permissions = permissions;
     await admin.save();
 
-    const populated = await User.findById(admin._id)
-      .populate("assignedRegion.region", "name type")
-      .populate("permissions.requests.allowedTypes", "name")
-      .populate("permissions.services.allowedTypes", "name icon")
-      .populate("permissions.msk.allowedCategories", "name icon");
-
+    const populated = await User.findById(admin._id).populate(ADMIN_DETAIL_POPULATE);
     res.json(populated);
   } catch (error) {
     res.status(500).json({ message: "Serverda xatolik yuz berdi" });
   }
 };
 
-module.exports = { getAll, getById, create, update, remove, setRegion, updatePermissions };
+/** PUT /api/admins/:id/delegation — faqat owner */
+const updateDelegation = async (req, res) => {
+  try {
+    const { canManageAdmins } = req.body;
+    const admin = await User.findOne({ _id: req.params.id, role: "admin" });
+
+    if (!admin) {
+      return res.status(404).json({ message: "Admin topilmadi" });
+    }
+
+    admin.canManageAdmins = !!canManageAdmins;
+    await admin.save();
+
+    const populated = await User.findById(admin._id).populate(ADMIN_POPULATE);
+    res.json(populated);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
+module.exports = { getAll, getById, create, update, remove, setRegion, updatePermissions, updateDelegation };

@@ -1,13 +1,23 @@
 const router = require("express").Router();
-const { getAll, getById, create, update, remove, setRegion, updatePermissions } = require("../controllers/admin.controller");
-const { protect, authorize } = require("../middlewares/auth.middleware");
+const {
+  getAll,
+  getById,
+  create,
+  update,
+  remove,
+  setRegion,
+  updatePermissions,
+  updateDelegation,
+} = require("../controllers/admin.controller");
+const { protect, authorize, authorizeAdminManager } = require("../middlewares/auth.middleware");
 
-router.get("/", protect, authorize("owner"), getAll);
-router.post("/", protect, authorize("owner"), create);
-router.get("/:id", protect, authorize("owner"), getById);
-router.put("/:id", protect, authorize("owner"), update);
-router.delete("/:id", protect, authorize("owner"), remove);
-router.put("/:id/region", protect, authorize("owner"), setRegion);
-router.put("/:id/permissions", protect, authorize("owner"), updatePermissions);
+router.get("/", protect, authorizeAdminManager, getAll);
+router.post("/", protect, authorizeAdminManager, create);
+router.get("/:id", protect, authorizeAdminManager, getById);
+router.put("/:id", protect, authorizeAdminManager, update);
+router.delete("/:id", protect, authorizeAdminManager, remove);
+router.put("/:id/region", protect, authorizeAdminManager, setRegion);
+router.put("/:id/permissions", protect, authorizeAdminManager, updatePermissions);
+router.put("/:id/delegation", protect, authorize("owner"), updateDelegation);
 
 module.exports = router;
