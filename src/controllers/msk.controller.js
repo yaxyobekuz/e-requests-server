@@ -6,7 +6,9 @@ const MskOrder = require("../models/msk-order.model");
 /** GET /api/msk/categories */
 const getCategories = async (req, res) => {
   try {
-    const categories = await MskCategory.find({ isActive: true }).sort({ name: 1 });
+    const categories = await MskCategory.find({ isActive: true }).sort({
+      name: 1,
+    });
     res.json(categories);
   } catch (error) {
     res.status(500).json({ message: "Serverda xatolik yuz berdi" });
@@ -18,12 +20,16 @@ const createCategory = async (req, res) => {
   try {
     const { name, icon } = req.body;
     if (!name) {
-      return res.status(400).json({ message: "Kategoriya nomi kiritilishi shart" });
+      return res
+        .status(400)
+        .json({ message: "Kategoriya nomi kiritilishi shart" });
     }
 
     const existing = await MskCategory.findOne({ name });
     if (existing) {
-      return res.status(400).json({ message: "Bunday kategoriya allaqachon mavjud" });
+      return res
+        .status(400)
+        .json({ message: "Bunday kategoriya allaqachon mavjud" });
     }
 
     const category = await MskCategory.create({ name, icon: icon || "" });
@@ -73,11 +79,25 @@ const deleteCategory = async (req, res) => {
 /** POST /api/msk/orders */
 const createOrder = async (req, res) => {
   try {
-    const { categoryId, description, contactFirstName, contactLastName, contactPhone } = req.body;
+    const {
+      categoryId,
+      description,
+      contactFirstName,
+      contactLastName,
+      contactPhone,
+    } = req.body;
     const user = req.user;
 
-    if (!categoryId || !description || !contactFirstName || !contactLastName || !contactPhone) {
-      return res.status(400).json({ message: "Barcha maydonlar to'ldirilishi shart" });
+    if (
+      !categoryId ||
+      !description ||
+      !contactFirstName ||
+      !contactLastName ||
+      !contactPhone
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Barcha maydonlar to'ldirilishi shart" });
     }
 
     if (!user.address) {
@@ -110,7 +130,10 @@ const getMyOrders = async (req, res) => {
     const orders = await MskOrder.find({ user: req.user._id })
       .sort({ createdAt: -1 })
       .populate("category", "name icon")
-      .populate("address.region address.district address.neighborhood address.street", "name");
+      .populate(
+        "address.region address.district address.neighborhood address.street",
+        "name",
+      );
 
     res.json(orders);
   } catch (error) {
@@ -132,14 +155,17 @@ const updateOrder = async (req, res) => {
 
     if (order.status !== "pending") {
       return res.status(400).json({
-        message: "Faqat 'Kutilmoqda' statusidagi buyurtmalarni tahrirlash mumkin",
+        message:
+          "Faqat 'Kutilmoqda' statusidagi buyurtmalarni tahrirlash mumkin",
       });
     }
 
-    const { description, contactFirstName, contactLastName, contactPhone } = req.body;
+    const { description, contactFirstName, contactLastName, contactPhone } =
+      req.body;
 
     if (description !== undefined) order.description = description;
-    if (contactFirstName !== undefined) order.contactFirstName = contactFirstName;
+    if (contactFirstName !== undefined)
+      order.contactFirstName = contactFirstName;
     if (contactLastName !== undefined) order.contactLastName = contactLastName;
     if (contactPhone !== undefined) order.contactPhone = contactPhone;
 
@@ -153,7 +179,15 @@ const updateOrder = async (req, res) => {
 /** GET /api/msk/orders */
 const getAllOrders = async (req, res) => {
   try {
-    const { categoryId, regionId, status, page = 1, limit = 20 } = req.query;
+    const {
+      categoryId,
+      regionId,
+      status,
+      deadlineStatus,
+      deadlineDays,
+      page = 1,
+      limit = 20,
+    } = req.query;
     const filter = {};
 
     if (categoryId) filter.category = categoryId;
@@ -183,6 +217,45 @@ const getAllOrders = async (req, res) => {
       filter.category = { $in: req.allowedMskCategories };
     }
 
+    // Ijro muddati filtri
+    if (deadlineStatus && deadlineDays) {
+      const days = Number(deadlineDays);
+      const WARN_DAYS = 5;
+      const now = new Date();
+      const terminalStatuses = ["confirmed", "rejected", "cancelled"];
+
+      if (!status) {
+        if (deadlineStatus === "overdue") {
+          filter.createdAt = { $lte: new Date(now - days * 86400000) };
+          filter.status = { $nin: terminalStatuses };
+        } else if (deadlineStatus === "approaching") {
+          filter.createdAt = {
+            $gt: new Date(now - days * 86400000),
+            $lte: new Date(now - (days - WARN_DAYS) * 86400000),
+          };
+          filter.status = { $nin: terminalStatuses };
+        } else if (deadlineStatus === "ok") {
+          filter.createdAt = {
+            $gt: new Date(now - (days - WARN_DAYS) * 86400000),
+          };
+          filter.status = { $nin: terminalStatuses };
+        }
+      } else {
+        if (deadlineStatus === "overdue") {
+          filter.createdAt = { $lte: new Date(now - days * 86400000) };
+        } else if (deadlineStatus === "approaching") {
+          filter.createdAt = {
+            $gt: new Date(now - days * 86400000),
+            $lte: new Date(now - (days - WARN_DAYS) * 86400000),
+          };
+        } else if (deadlineStatus === "ok") {
+          filter.createdAt = {
+            $gt: new Date(now - (days - WARN_DAYS) * 86400000),
+          };
+        }
+      }
+    }
+
     const skip = (Number(page) - 1) * Number(limit);
 
     const [orders, total] = await Promise.all([
@@ -192,12 +265,20 @@ const getAllOrders = async (req, res) => {
         .limit(Number(limit))
         .populate("category", "name icon")
         .populate("user", "firstName phone")
-        .populate("address.region address.district address.neighborhood address.street", "name")
+        .populate(
+          "address.region address.district address.neighborhood address.street",
+          "name",
+        )
         .populate("assignedAdmin", "firstName alias"),
       MskOrder.countDocuments(filter),
     ]);
 
-    res.json({ data: orders, total, page: Number(page), pages: Math.ceil(total / Number(limit)) });
+    res.json({
+      data: orders,
+      total,
+      page: Number(page),
+      pages: Math.ceil(total / Number(limit)),
+    });
   } catch (error) {
     res.status(500).json({ message: "Serverda xatolik yuz berdi" });
   }
@@ -227,7 +308,9 @@ const updateOrderStatus = async (req, res) => {
     }
 
     if (status === "rejected" && !rejectionReason) {
-      return res.status(400).json({ message: "Rad etish sababi kiritilishi shart" });
+      return res
+        .status(400)
+        .json({ message: "Rad etish sababi kiritilishi shart" });
     }
 
     order.status = status;
@@ -261,7 +344,12 @@ const confirmOrder = async (req, res) => {
     }
 
     if (order.status !== "pending_confirmation") {
-      return res.status(400).json({ message: "Faqat 'Tasdiq kutilmoqda' statusidagi buyurtmalarni tasdiqlash mumkin" });
+      return res
+        .status(400)
+        .json({
+          message:
+            "Faqat 'Tasdiq kutilmoqda' statusidagi buyurtmalarni tasdiqlash mumkin",
+        });
     }
 
     order.confirmedByUser = confirmed;
@@ -287,8 +375,14 @@ const cancelOrder = async (req, res) => {
       return res.status(404).json({ message: "Buyurtma topilmadi" });
     }
 
-    if (["pending_confirmation", "confirmed", "rejected", "cancelled"].includes(order.status)) {
-      return res.status(400).json({ message: "Bu buyurtmani bekor qilib bo'lmaydi" });
+    if (
+      ["pending_confirmation", "confirmed", "rejected", "cancelled"].includes(
+        order.status,
+      )
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Bu buyurtmani bekor qilib bo'lmaydi" });
     }
 
     order.status = "cancelled";
@@ -307,7 +401,10 @@ const getOrderById = async (req, res) => {
     const order = await MskOrder.findById(req.params.id)
       .populate("category", "name icon")
       .populate("user", "firstName phone")
-      .populate("address.region address.district address.neighborhood address.street", "name")
+      .populate(
+        "address.region address.district address.neighborhood address.street",
+        "name",
+      )
       .populate("assignedAdmin", "firstName alias");
 
     if (!order) {
