@@ -238,12 +238,16 @@ const updatePermissions = async (req, res) => {
   }
 };
 
-/** PUT /api/admins/:id/delegation — faqat owner */
+/** PUT /api/admins/:id/delegation */
 const updateDelegation = async (req, res) => {
   try {
     const { canManageAdmins } = req.body;
-    const admin = await User.findOne({ _id: req.params.id, role: "admin" });
+    const filter = { _id: req.params.id, role: "admin" };
+    if (req.isDelegatedManager) {
+      filter.createdBy = req.user._id;
+    }
 
+    const admin = await User.findOne(filter);
     if (!admin) {
       return res.status(404).json({ message: "Admin topilmadi" });
     }

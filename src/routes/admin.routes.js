@@ -18,6 +18,6 @@ router.put("/:id", protect, authorizeAdminManager, update);
 router.delete("/:id", protect, authorizeAdminManager, remove);
 router.put("/:id/region", protect, authorizeAdminManager, setRegion);
 router.put("/:id/permissions", protect, authorizeAdminManager, updatePermissions);
-router.put("/:id/delegation", protect, authorize("owner"), updateDelegation);
+router.put("/:id/delegation", protect, authorizeAdminManager, updateDelegation);
 
 module.exports = router;
