@@ -1,5 +1,25 @@
 const User = require("../models/user.model");
+const Region = require("../models/region.model");
 const { validatePermissionsSubset } = require("../utils/permissions.util");
+
+/**
+ * Checks if requestedRegionId is the same as callerRegionId or a descendant of it.
+ * Traverses the region parent chain upward from the requested region.
+ * @param {string|ObjectId} requestedRegionId
+ * @param {string|ObjectId} callerRegionId
+ * @returns {Promise<boolean>}
+ */
+const isRegionWithinCaller = async (requestedRegionId, callerRegionId) => {
+  if (requestedRegionId.toString() === callerRegionId.toString()) return true;
+  let curId = requestedRegionId;
+  for (let i = 0; i < 4; i++) {
+    const region = await Region.findById(curId).select("parent");
+    if (!region || !region.parent) return false;
+    if (region.parent.toString() === callerRegionId.toString()) return true;
+    curId = region.parent;
+  }
+  return false;
+};
 
 const ADMIN_POPULATE = [
   { path: "assignedRegion.region", select: "name type" },
@@ -67,10 +87,11 @@ const create = async (req, res) => {
       if (assignedRegion && req.user.assignedRegion) {
         const callerRegionId = req.user.assignedRegion.region.toString();
         const requestedRegionId = assignedRegion.region?.toString() || assignedRegion.toString();
-        if (callerRegionId !== requestedRegionId) {
+        const allowed = await isRegionWithinCaller(requestedRegionId, callerRegionId);
+        if (!allowed) {
           return res
             .status(403)
-            .json({ message: "Siz faqat o'z hududingizni yoki uning quyi hududlarini tayinlay olasiz" });
+            .json({ message: "Siz faqat o'z hududingiz doirasida ruxsat bera olasiz" });
         }
       }
     }
@@ -158,14 +179,15 @@ const setRegion = async (req, res) => {
     if (req.isDelegatedManager) {
       filter.createdBy = req.user._id;
 
-      // Delegat admin faqat o'z hududini bera oladi
+      // Delegat admin faqat o'z hududi yoki quyi hududini bera oladi
       if (assignedRegion && req.user.assignedRegion) {
         const callerRegionId = req.user.assignedRegion.region.toString();
         const requestedRegionId = assignedRegion.region?.toString() || assignedRegion.toString();
-        if (callerRegionId !== requestedRegionId) {
+        const allowed = await isRegionWithinCaller(requestedRegionId, callerRegionId);
+        if (!allowed) {
           return res
             .status(403)
-            .json({ message: "Siz faqat o'z hududingizni tayinlay olasiz" });
+            .json({ message: "Siz faqat o'z hududingiz doirasida ruxsat bera olasiz" });
         }
       }
     }
