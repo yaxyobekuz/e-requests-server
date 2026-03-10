@@ -120,11 +120,58 @@ const adminLogin = async (req, res) => {
 /** GET /api/auth/me */
 const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).populate(
-      "address.region address.district address.neighborhood address.street",
-      "name type",
-    );
+    const user = await User.findById(req.user._id)
+      .populate("address.region address.district address.neighborhood address.street", "name type")
+      .populate("assignedRegion.region", "name type")
+      .populate("adminRole", "name description")
+      .populate("permissions.requests.allowedTypes", "name")
+      .populate("permissions.services.allowedTypes", "name icon")
+      .populate("permissions.msk.allowedCategories", "name icon");
     res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
+/** PUT /api/auth/me */
+const updateMe = async (req, res) => {
+  try {
+    const { alias, firstName, lastName } = req.body;
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: "Foydalanuvchi topilmadi" });
+    }
+    if (alias !== undefined) user.alias = alias;
+    if (firstName !== undefined) user.firstName = firstName;
+    if (lastName !== undefined) user.lastName = lastName;
+    await user.save();
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
+/** PUT /api/auth/change-password */
+const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Joriy va yangi parol kiritilishi shart" });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "Yangi parol kamida 6 ta belgidan iborat bo'lishi shart" });
+    }
+    const user = await User.findById(req.user._id).select("+password");
+    if (!user) {
+      return res.status(404).json({ message: "Foydalanuvchi topilmadi" });
+    }
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Joriy parol noto'g'ri" });
+    }
+    user.password = newPassword;
+    await user.save();
+    res.json({ message: "Parol muvaffaqiyatli o'zgartirildi" });
   } catch (error) {
     res.status(500).json({ message: "Serverda xatolik yuz berdi" });
   }
@@ -255,4 +302,4 @@ const registerWithOtp = async (req, res) => {
   }
 };
 
-module.exports = { register, login, adminLogin, getMe, checkPhone, loginWithOtp, adminLoginWithOtp, registerWithOtp };
+module.exports = { register, login, adminLogin, getMe, updateMe, changePassword, checkPhone, loginWithOtp, adminLoginWithOtp, registerWithOtp };
