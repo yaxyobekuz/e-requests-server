@@ -8,11 +8,16 @@ const {
   setRegion,
   updatePermissions,
   updateDelegation,
+  getTree,
+  getStats,
 } = require("../controllers/admin.controller");
 const { protect, authorize, authorizeAdminManager } = require("../middlewares/auth.middleware");
 
 router.get("/", protect, authorizeAdminManager, getAll);
 router.post("/", protect, authorizeAdminManager, create);
+// /stats va /tree /:id dan OLDIN bo'lishi shart (Express pattern matching)
+router.get("/stats", protect, authorizeAdminManager, getStats);
+router.get("/tree", protect, authorizeAdminManager, getTree);
 router.get("/:id", protect, authorizeAdminManager, getById);
 router.put("/:id", protect, authorizeAdminManager, update);
 router.delete("/:id", protect, authorizeAdminManager, remove);

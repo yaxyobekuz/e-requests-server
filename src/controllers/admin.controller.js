@@ -3,6 +3,25 @@ const Region = require("../models/region.model");
 const { validatePermissionsSubset } = require("../utils/permissions.util");
 
 /**
+ * Berilgan userId dan boshlangan shajara bo'yicha barcha avlod admin ID larini qaytaradi (BFS).
+ * @param {import("mongoose").Types.ObjectId} rootId - boshlang'ich user ID
+ * @returns {Promise<import("mongoose").Types.ObjectId[]>}
+ */
+const getDescendantIds = async (rootId) => {
+  const ids = [];
+  const queue = [rootId];
+  while (queue.length) {
+    const parentId = queue.shift();
+    const children = await User.find({ role: "admin", createdBy: parentId }).select("_id");
+    for (const c of children) {
+      ids.push(c._id);
+      queue.push(c._id);
+    }
+  }
+  return ids;
+};
+
+/**
  * Checks if requestedRegionId is the same as callerRegionId or a descendant of it.
  * Traverses the region parent chain upward from the requested region.
  * @param {string|ObjectId} requestedRegionId
@@ -285,4 +304,73 @@ const updateDelegation = async (req, res) => {
   }
 };
 
-module.exports = { getAll, getById, create, update, remove, setRegion, updatePermissions, updateDelegation };
+/** GET /api/admins/tree — caller va barcha avlod adminlar */
+const getTree = async (req, res) => {
+  try {
+    const descendantIds = await getDescendantIds(req.user._id);
+
+    const filter = { role: "admin" };
+    if (req.isDelegatedManager) {
+      filter._id = { $in: descendantIds };
+    }
+
+    const admins = await User.find(filter)
+      .sort({ createdAt: -1 })
+      .populate(ADMIN_POPULATE)
+      .populate({ path: "createdBy", select: "alias firstName" });
+
+    res.json(admins);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
+/** GET /api/admins/stats — shajara bo'yicha umumiy statistika */
+const getStats = async (req, res) => {
+  try {
+    const descendantIds = req.isDelegatedManager
+      ? await getDescendantIds(req.user._id)
+      : null;
+
+    const filter = { role: "admin" };
+    if (req.isDelegatedManager) filter._id = { $in: descendantIds };
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [total, active, inactive, withDelegation, createdToday, byRole] = await Promise.all([
+      User.countDocuments(filter),
+      User.countDocuments({ ...filter, isActive: true }),
+      User.countDocuments({ ...filter, isActive: false }),
+      User.countDocuments({ ...filter, canManageAdmins: true }),
+      User.countDocuments({ ...filter, createdAt: { $gte: today } }),
+      User.aggregate([
+        { $match: filter },
+        { $group: { _id: "$adminRole", count: { $sum: 1 } } },
+        {
+          $lookup: {
+            from: "adminroles",
+            localField: "_id",
+            foreignField: "_id",
+            as: "roleInfo",
+          },
+        },
+        {
+          $project: {
+            roleId: "$_id",
+            roleName: { $arrayElemAt: ["$roleInfo.name", 0] },
+            count: 1,
+            _id: 0,
+          },
+        },
+        { $sort: { count: -1 } },
+      ]),
+    ]);
+
+    res.json({ total, active, inactive, withDelegation, createdToday, byRole });
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
+module.exports = { getAll, getById, create, update, remove, setRegion, updatePermissions, updateDelegation, getTree, getStats };
