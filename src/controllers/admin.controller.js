@@ -32,6 +32,7 @@ const ADMIN_DETAIL_POPULATE = [
   { path: "permissions.requests.allowedTypes", select: "name" },
   { path: "permissions.services.allowedTypes", select: "name icon" },
   { path: "permissions.msk.allowedCategories", select: "name icon" },
+  { path: "createdBy", select: "alias firstName lastName phone role" },
 ];
 
 /** GET /api/admins */
