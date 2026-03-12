@@ -17,5 +17,8 @@ router.use("/msk", require("./msk.routes"));
 router.use("/admins", require("./admin.routes"));
 router.use("/admin-roles", require("./admin-role.routes"));
 router.use("/settings", require("./settings.routes"));
+router.use("/stats", require("./stats.routes"));
+router.use("/products", require("./product.routes"));
+router.use("/harvest", require("./harvest.routes"));
 
 module.exports = router;
