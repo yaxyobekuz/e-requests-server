@@ -16,11 +16,14 @@ exports.createHarvest = async (req, res) => {
     const { productId, varietyId, area, amount, year, season } = req.body;
 
     if (!productId || !varietyId || !area || !amount || !year) {
-      return res.status(400).json({ message: "Barcha majburiy maydonlarni to'ldiring" });
+      return res
+        .status(400)
+        .json({ message: "Barcha majburiy maydonlarni to'ldiring" });
     }
 
     const product = await Product.findById(productId);
-    if (!product) return res.status(404).json({ message: "Mahsulot topilmadi" });
+    if (!product)
+      return res.status(404).json({ message: "Mahsulot topilmadi" });
 
     const variety = product.varieties.id(varietyId);
     if (!variety) return res.status(404).json({ message: "Nav topilmadi" });
@@ -93,7 +96,10 @@ exports.getMyHarvest = async (req, res) => {
  */
 exports.deleteMyHarvest = async (req, res) => {
   try {
-    const harvest = await Harvest.findOne({ _id: req.params.id, user: req.user._id });
+    const harvest = await Harvest.findOne({
+      _id: req.params.id,
+      user: req.user._id,
+    });
     if (!harvest) return res.status(404).json({ message: "Yozuv topilmadi" });
 
     await harvest.deleteOne();
@@ -139,7 +145,11 @@ exports.getStatsOverview = async (req, res) => {
       { $match: matchStage },
       {
         $group: {
-          _id: { product: "$product", varietyId: "$varietyId", region: "$address.region" },
+          _id: {
+            product: "$product",
+            varietyId: "$varietyId",
+            region: "$address.region",
+          },
           totalAmount: { $sum: "$amount" },
           totalArea: { $sum: "$area" },
           count: { $sum: 1 },

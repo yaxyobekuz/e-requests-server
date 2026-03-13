@@ -16,7 +16,7 @@ router.get("/my", protect, authorize("user"), getMyHarvest);
 router.delete("/:id", protect, authorize("user"), deleteMyHarvest);
 
 // Admin / Owner uchun statistika
-router.get("/stats/overview", protect, authorize("owner", "admin"), getStatsOverview);
+router.get("/stats/overview", protect, getStatsOverview);
 router.get("/stats/by-region", protect, authorize("owner", "admin"), getStatsByRegion);
 
 module.exports = router;
