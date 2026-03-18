@@ -14,7 +14,7 @@ const getAll = async (req, res) => {
 /** POST /api/admin-roles */
 const create = async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, executionPermissions } = req.body;
 
     if (!name || !name.trim()) {
       return res.status(400).json({ message: "Lavozim nomi kiritilishi shart" });
@@ -25,7 +25,10 @@ const create = async (req, res) => {
       return res.status(400).json({ message: "Bu nomli lavozim allaqachon mavjud" });
     }
 
-    const role = await AdminRole.create({ name: name.trim(), description: description || "" });
+    const role = await AdminRole.create({
+      name: name.trim(),
+      ...(executionPermissions && { executionPermissions }),
+    });
     res.status(201).json(role);
   } catch (error) {
     res.status(500).json({ message: "Serverda xatolik yuz berdi" });
@@ -35,7 +38,7 @@ const create = async (req, res) => {
 /** PUT /api/admin-roles/:id */
 const update = async (req, res) => {
   try {
-    const { name, description } = req.body;
+    const { name, executionPermissions } = req.body;
     const role = await AdminRole.findById(req.params.id);
 
     if (!role) {
@@ -43,7 +46,7 @@ const update = async (req, res) => {
     }
 
     if (name !== undefined) role.name = name.trim();
-    if (description !== undefined) role.description = description;
+    if (executionPermissions !== undefined) role.executionPermissions = executionPermissions;
 
     await role.save();
     res.json(role);
