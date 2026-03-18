@@ -45,7 +45,7 @@ const checkPermission = (module, requiredLevel) => {
     // Lavozim bo'yicha bajarish ruxsatini tekshirish (faqat "manage" uchun)
     if (requiredLevel === "manage") {
       const adminRole = req.user.adminRole;
-      if (adminRole && !adminRole.executionPermissions?.[module]) {
+      if (adminRole && adminRole.executionPermissions?.[module] === false) {
         return res
           .status(403)
           .json({ message: "Lavozim bo'yicha bajarish ruxsati berilmagan" });
