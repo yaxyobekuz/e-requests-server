@@ -123,7 +123,7 @@ const getMe = async (req, res) => {
     const user = await User.findById(req.user._id)
       .populate("address.region address.district address.neighborhood address.street", "name type")
       .populate("assignedRegion.region", "name type")
-      .populate("adminRole", "name description")
+      .populate("adminRole", "name executionPermissions")
       .populate("permissions.requests.allowedTypes", "name")
       .populate("permissions.services.allowedTypes", "name icon")
       .populate("permissions.msk.allowedCategories", "name icon");
