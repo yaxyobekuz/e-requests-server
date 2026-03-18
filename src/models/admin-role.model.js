@@ -8,10 +8,10 @@ const adminRoleSchema = new mongoose.Schema(
       trim: true,
       unique: true,
     },
-    description: {
-      type: String,
-      default: "",
-      trim: true,
+    executionPermissions: {
+      requests: { type: Boolean, default: false },
+      services: { type: Boolean, default: false },
+      msk: { type: Boolean, default: false },
     },
     isActive: {
       type: Boolean,
