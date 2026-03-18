@@ -42,6 +42,16 @@ const checkPermission = (module, requiredLevel) => {
       req.allowedMskCategories = modulePerms.allowedCategories || [];
     }
 
+    // Lavozim bo'yicha bajarish ruxsatini tekshirish (faqat "manage" uchun)
+    if (requiredLevel === "manage") {
+      const adminRole = req.user.adminRole;
+      if (adminRole && !adminRole.executionPermissions?.[module]) {
+        return res
+          .status(403)
+          .json({ message: "Lavozim bo'yicha bajarish ruxsati berilmagan" });
+      }
+    }
+
     next();
   };
 };
