@@ -15,7 +15,7 @@ const protect = async (req, res, next) => {
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, config.JWT_SECRET);
 
-    const user = await User.findById(decoded.id);
+    const user = await User.findById(decoded.id).populate("adminRole");
     if (!user || !user.isActive) {
       return res.status(401).json({ message: "Foydalanuvchi topilmadi" });
     }
