@@ -117,10 +117,11 @@ exports.deleteMyHarvest = async (req, res) => {
  * @query {string} varietyId - nav ID (ixtiyoriy)
  * @query {string} regionId - hudud ID (ixtiyoriy)
  * @query {number} year - yil (ixtiyoriy)
+ * @query {string} season - fasl (ixtiyoriy): bahor, yoz, kuz, qish
  */
 exports.getStatsOverview = async (req, res) => {
   try {
-    const { productId, varietyId, regionId, year } = req.query;
+    const { productId, varietyId, regionId, year, season } = req.query;
     const user = req.user;
 
     const matchStage = {};
@@ -128,6 +129,7 @@ exports.getStatsOverview = async (req, res) => {
     if (productId) matchStage.product = new ObjectId(productId);
     if (varietyId) matchStage.varietyId = new ObjectId(varietyId);
     if (year) matchStage.year = Number(year);
+    if (season) matchStage.season = season;
 
     if (user.role === "admin" && user.assignedRegion) {
       const rid = user.assignedRegion.region;
@@ -210,13 +212,14 @@ exports.getStatsOverview = async (req, res) => {
  */
 exports.getStatsByRegion = async (req, res) => {
   try {
-    const { productId, varietyId, year } = req.query;
+    const { productId, varietyId, year, season } = req.query;
     const user = req.user;
 
     const matchStage = {};
     if (productId) matchStage.product = new ObjectId(productId);
     if (varietyId) matchStage.varietyId = new ObjectId(varietyId);
     if (year) matchStage.year = Number(year);
+    if (season) matchStage.season = season;
 
     if (user.role === "admin" && user.assignedRegion) {
       const rid = user.assignedRegion.region;
@@ -262,6 +265,86 @@ exports.getStatsByRegion = async (req, res) => {
         $project: {
           regionId: "$_id",
           regionName: "$region.name",
+          totalAmount: 1,
+          totalArea: 1,
+          avgPerSotix: 1,
+          count: 1,
+        },
+      },
+      { $sort: { avgPerSotix: -1 } },
+    ]);
+
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Hosil statistikasini tanlangan viloyat tumanlari bo'yicha qaytaradi.
+ * @route GET /api/harvest/stats/by-district/:regionId
+ * @param {string} regionId - viloyat ID
+ * @query {string} productId - mahsulot ID (ixtiyoriy)
+ * @query {string} varietyId - nav ID (ixtiyoriy)
+ * @query {number} year - yil (ixtiyoriy)
+ * @query {string} season - fasl (ixtiyoriy)
+ */
+exports.getStatsByDistrict = async (req, res) => {
+  try {
+    const { regionId } = req.params;
+    const { productId, varietyId, year, season } = req.query;
+
+    const matchStage = { "address.region": new ObjectId(regionId) };
+    if (productId) matchStage.product = new ObjectId(productId);
+    if (varietyId) matchStage.varietyId = new ObjectId(varietyId);
+    if (year) matchStage.year = Number(year);
+    if (season) matchStage.season = season;
+
+    const user = req.user;
+    if (user.role === "admin" && user.assignedRegion) {
+      const rid = user.assignedRegion.region;
+      matchStage["$or"] = [
+        { "address.region": rid },
+        { "address.district": rid },
+        { "address.neighborhood": rid },
+        { "address.street": rid },
+      ];
+    }
+
+    const results = await Harvest.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: "$address.district",
+          totalAmount: { $sum: "$amount" },
+          totalArea: { $sum: "$area" },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $addFields: {
+          avgPerSotix: {
+            $cond: [
+              { $gt: ["$totalArea", 0] },
+              { $round: [{ $divide: ["$totalAmount", "$totalArea"] }, 2] },
+              0,
+            ],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "regions",
+          localField: "_id",
+          foreignField: "_id",
+          as: "district",
+        },
+      },
+      { $unwind: { path: "$district", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          districtId: "$_id",
+          districtName: "$district.name",
           totalAmount: 1,
           totalArea: 1,
           avgPerSotix: 1,

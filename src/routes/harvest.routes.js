@@ -6,6 +6,7 @@ const {
   deleteMyHarvest,
   getStatsOverview,
   getStatsByRegion,
+  getStatsByDistrict,
 } = require("../controllers/harvest.controller");
 
 const router = Router();
@@ -18,5 +19,6 @@ router.delete("/:id", protect, authorize("user"), deleteMyHarvest);
 // Admin / Owner uchun statistika
 router.get("/stats/overview", protect, getStatsOverview);
 router.get("/stats/by-region", protect, authorize("owner", "admin"), getStatsByRegion);
+router.get("/stats/by-district/:regionId", protect, authorize("owner", "admin"), getStatsByDistrict);
 
 module.exports = router;
