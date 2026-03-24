@@ -336,6 +336,309 @@ const getByDistrict = async (req, res) => {
   }
 };
 
+/**
+ * Builds a $match stage tailored for the User model.
+ * Unlike buildMatchStage (which filters by address on request-like docs),
+ * this filters User docs by their own address and createdAt.
+ *
+ * @param {object} query - req.query (period, regionId, districtId)
+ * @param {object} user  - req.user
+ * @param {boolean} [applyPeriod=true] - whether to scope by createdAt
+ * @returns {object} match stage
+ */
+function buildUserMatchStage(query, user, applyPeriod = true) {
+  const { period = "30", regionId, districtId } = query;
+  const match = { role: "user" };
+
+  if (applyPeriod) {
+    const since = new Date(Date.now() - parseInt(period, 10) * 86_400_000);
+    match.createdAt = { $gte: since };
+  }
+
+  if (user.role === "admin" && user.assignedRegion) {
+    const rid = user.assignedRegion.region;
+    match["$or"] = [
+      { "address.region": rid },
+      { "address.district": rid },
+      { "address.neighborhood": rid },
+      { "address.street": rid },
+    ];
+  }
+
+  if (user.role === "owner") {
+    if (districtId) {
+      match["address.district"] = new ObjectId(districtId);
+    } else if (regionId) {
+      match["address.region"] = new ObjectId(regionId);
+    }
+  }
+
+  return match;
+}
+
+/**
+ * GET /api/stats/users
+ * User analytics: trend (registrations), byStatus (active/inactive),
+ * byRegion (per-region totals), topActive (most active users across all modules).
+ */
+const getUserStats = async (req, res) => {
+  try {
+    const trendMatch = buildUserMatchStage(req.query, req.user, true);
+    const totalMatch = buildUserMatchStage(req.query, req.user, false);
+    const activityMatch = buildMatchStage(req.query, req.user);
+
+    const [trend, active, inactive, byRegion, topActive] = await Promise.all([
+      // Registration trend (daily)
+      User.aggregate([
+        { $match: trendMatch },
+        {
+          $group: {
+            _id: { $dateToString: { format: "%Y-%m-%d", date: "$createdAt" } },
+            count: { $sum: 1 },
+          },
+        },
+        { $sort: { _id: 1 } },
+        { $project: { date: "$_id", count: 1, _id: 0 } },
+      ]),
+
+      // Active users count
+      User.countDocuments({ ...totalMatch, isActive: true }),
+
+      // Inactive users count
+      User.countDocuments({ ...totalMatch, isActive: false }),
+
+      // By region with active/inactive breakdown
+      User.aggregate([
+        { $match: totalMatch },
+        {
+          $group: {
+            _id: "$address.region",
+            total: { $sum: 1 },
+            active: { $sum: { $cond: ["$isActive", 1, 0] } },
+            inactive: { $sum: { $cond: ["$isActive", 0, 1] } },
+          },
+        },
+        { $sort: { total: -1 } },
+        {
+          $lookup: {
+            from: "regions",
+            localField: "_id",
+            foreignField: "_id",
+            as: "region",
+          },
+        },
+        { $unwind: { path: "$region", preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            regionId: "$_id",
+            regionName: { $ifNull: ["$region.name", "Noma'lum"] },
+            total: 1,
+            active: 1,
+            inactive: 1,
+            _id: 0,
+          },
+        },
+      ]),
+
+      // Top active users (most requests + services + msk)
+      (async () => {
+        const [reqCounts, svcCounts, mskCounts] = await Promise.all([
+          Request.aggregate([
+            { $match: activityMatch },
+            { $group: { _id: "$user", requests: { $sum: 1 } } },
+          ]),
+          ServiceReport.aggregate([
+            { $match: activityMatch },
+            { $group: { _id: "$user", services: { $sum: 1 } } },
+          ]),
+          MskOrder.aggregate([
+            { $match: activityMatch },
+            { $group: { _id: "$user", msk: { $sum: 1 } } },
+          ]),
+        ]);
+
+        // Merge counts by user
+        const userMap = new Map();
+        for (const r of reqCounts) {
+          const id = String(r._id);
+          if (!userMap.has(id)) userMap.set(id, { _id: r._id, requests: 0, services: 0, msk: 0 });
+          userMap.get(id).requests = r.requests;
+        }
+        for (const s of svcCounts) {
+          const id = String(s._id);
+          if (!userMap.has(id)) userMap.set(id, { _id: s._id, requests: 0, services: 0, msk: 0 });
+          userMap.get(id).services = s.services;
+        }
+        for (const m of mskCounts) {
+          const id = String(m._id);
+          if (!userMap.has(id)) userMap.set(id, { _id: m._id, requests: 0, services: 0, msk: 0 });
+          userMap.get(id).msk = m.msk;
+        }
+
+        const sorted = [...userMap.values()]
+          .map((u) => ({ ...u, total: u.requests + u.services + u.msk }))
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 10);
+
+        // Populate user names + region
+        const userIds = sorted.map((u) => u._id);
+        const users = await User.find({ _id: { $in: userIds } })
+          .select("firstName lastName address.region")
+          .populate("address.region", "name")
+          .lean();
+
+        const usersById = Object.fromEntries(users.map((u) => [String(u._id), u]));
+
+        return sorted.map((u) => {
+          const info = usersById[String(u._id)] || {};
+          return {
+            userId: u._id,
+            firstName: info.firstName || "",
+            lastName: info.lastName || "",
+            regionName: info.address?.region?.name || "Noma'lum",
+            requests: u.requests,
+            services: u.services,
+            msk: u.msk,
+            total: u.total,
+          };
+        });
+      })(),
+    ]);
+
+    res.json({
+      trend,
+      byStatus: { active, inactive, total: active + inactive },
+      byRegion,
+      topActive,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
+/**
+ * GET /api/stats/users/by-region
+ * All top-level regions with user counts (total, active, inactive).
+ */
+const getUsersByRegion = async (req, res) => {
+  try {
+    const match = buildUserMatchStage(req.query, req.user, false);
+
+    const [allRegions, userCounts] = await Promise.all([
+      Region.find({ type: "region", isActive: true }).select("_id name").lean(),
+      User.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: "$address.region",
+            total: { $sum: 1 },
+            active: { $sum: { $cond: ["$isActive", 1, 0] } },
+            inactive: { $sum: { $cond: ["$isActive", 0, 1] } },
+          },
+        },
+      ]),
+    ]);
+
+    const countMap = Object.fromEntries(
+      userCounts.map((r) => [String(r._id), r]),
+    );
+
+    const result = allRegions.map((r) => {
+      const id = String(r._id);
+      const c = countMap[id] || { total: 0, active: 0, inactive: 0 };
+      return { _id: r._id, name: r.name, total: c.total, active: c.active, inactive: c.inactive };
+    });
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
+/**
+ * GET /api/stats/users/by-district/:regionId
+ * Districts (or neighborhoods if districtId query param is set) within
+ * a region with user counts.
+ */
+const getUsersByDistrict = async (req, res) => {
+  try {
+    const { regionId } = req.params;
+    const { districtId } = req.query;
+    const match = buildUserMatchStage(req.query, req.user, false);
+
+    // Remove $or if present, scope to the specific region
+    delete match["$or"];
+
+    if (districtId) {
+      // Drill down to neighborhoods within a district
+      match["address.district"] = new ObjectId(districtId);
+
+      const [neighborhoods, userCounts] = await Promise.all([
+        Region.find({ type: "neighborhood", parent: districtId, isActive: true })
+          .select("_id name")
+          .lean(),
+        User.aggregate([
+          { $match: { ...match, "address.neighborhood": { $exists: true } } },
+          {
+            $group: {
+              _id: "$address.neighborhood",
+              total: { $sum: 1 },
+              active: { $sum: { $cond: ["$isActive", 1, 0] } },
+              inactive: { $sum: { $cond: ["$isActive", 0, 1] } },
+            },
+          },
+        ]),
+      ]);
+
+      const countMap = Object.fromEntries(
+        userCounts.map((r) => [String(r._id), r]),
+      );
+
+      const result = neighborhoods.map((n) => {
+        const id = String(n._id);
+        const c = countMap[id] || { total: 0, active: 0, inactive: 0 };
+        return { _id: n._id, name: n.name, total: c.total, active: c.active, inactive: c.inactive };
+      });
+
+      return res.json(result);
+    }
+
+    // Districts within a region
+    match["address.region"] = new ObjectId(regionId);
+
+    const [districts, userCounts] = await Promise.all([
+      Region.find({ type: "district", parent: regionId, isActive: true })
+        .select("_id name")
+        .lean(),
+      User.aggregate([
+        { $match: { ...match, "address.district": { $exists: true } } },
+        {
+          $group: {
+            _id: "$address.district",
+            total: { $sum: 1 },
+            active: { $sum: { $cond: ["$isActive", 1, 0] } },
+            inactive: { $sum: { $cond: ["$isActive", 0, 1] } },
+          },
+        },
+      ]),
+    ]);
+
+    const countMap = Object.fromEntries(
+      userCounts.map((r) => [String(r._id), r]),
+    );
+
+    const result = districts.map((d) => {
+      const id = String(d._id);
+      const c = countMap[id] || { total: 0, active: 0, inactive: 0 };
+      return { _id: d._id, name: d.name, total: c.total, active: c.active, inactive: c.inactive };
+    });
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
 module.exports = {
   getOverview,
   getRequests,
@@ -343,4 +646,7 @@ module.exports = {
   getMsk,
   getByRegion,
   getByDistrict,
+  getUserStats,
+  getUsersByRegion,
+  getUsersByDistrict,
 };
