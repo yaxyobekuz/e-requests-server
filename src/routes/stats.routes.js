@@ -7,6 +7,7 @@ const {
   getMsk,
   getByRegion,
   getByDistrict,
+  getByNeighborhood,
   getUserStats,
   getUsersByRegion,
   getUsersByDistrict,
@@ -24,5 +25,6 @@ router.get("/users/by-region", ...guard, getUsersByRegion);
 router.get("/users/by-district/:regionId", ...guard, getUsersByDistrict);
 router.get("/by-region", ...guard, getByRegion);
 router.get("/by-district/:regionId", ...guard, getByDistrict);
+router.get("/by-neighborhood/:districtId", ...guard, getByNeighborhood);
 
 module.exports = router;

@@ -5,19 +5,18 @@ const MskOrder = require("../models/msk-order.model");
 const User = require("../models/user.model");
 const Region = require("../models/region.model");
 
-const { Types: { ObjectId } } = mongoose;
+const {
+  Types: { ObjectId },
+} = mongoose;
 
-/**
- * Builds a MongoDB $match stage from query params and the requesting user.
- * Admin role: forces their assignedRegion scope.
- * Owner role: optionally filters by regionId or districtId.
- *
- * @param {object} query - req.query
- * @param {object} user  - req.user
- * @returns {object} match stage object
- */
+/** Converts a query-string value to a usable ID or null (guards against string "null"). */
+const cleanId = (v) => (v && v !== "null" && v !== "undefined" ? v : null);
+
 function buildMatchStage(query, user) {
-  const { period = "30", regionId, districtId } = query;
+  const period = query.period || "30";
+  const regionId = cleanId(query.regionId);
+  const districtId = cleanId(query.districtId);
+  const neighborhoodId = cleanId(query.neighborhoodId);
   const since = new Date(Date.now() - parseInt(period, 10) * 86_400_000);
   const match = { createdAt: { $gte: since } };
 
@@ -32,7 +31,9 @@ function buildMatchStage(query, user) {
   }
 
   if (user.role === "owner") {
-    if (districtId) {
+    if (neighborhoodId) {
+      match["address.neighborhood"] = new ObjectId(neighborhoodId);
+    } else if (districtId) {
       match["address.district"] = new ObjectId(districtId);
     } else if (regionId) {
       match["address.region"] = new ObjectId(regionId);
@@ -275,7 +276,14 @@ const getByRegion = async (req, res) => {
       const requests = reqMap[id] || 0;
       const services = svcMap[id] || 0;
       const msk = mskMap[id] || 0;
-      return { _id: r._id, name: r.name, requests, services, msk, total: requests + services + msk };
+      return {
+        _id: r._id,
+        name: r.name,
+        requests,
+        services,
+        msk,
+        total: requests + services + msk,
+      };
     });
 
     res.json(result);
@@ -327,7 +335,14 @@ const getByDistrict = async (req, res) => {
       const requests = reqMap[id] || 0;
       const services = svcMap[id] || 0;
       const msk = mskMap[id] || 0;
-      return { _id: d._id, name: d.name, requests, services, msk, total: requests + services + msk };
+      return {
+        _id: d._id,
+        name: d.name,
+        requests,
+        services,
+        msk,
+        total: requests + services + msk,
+      };
     });
 
     res.json(result);
@@ -347,7 +362,10 @@ const getByDistrict = async (req, res) => {
  * @returns {object} match stage
  */
 function buildUserMatchStage(query, user, applyPeriod = true) {
-  const { period = "30", regionId, districtId } = query;
+  const period = query.period || "30";
+  const regionId = cleanId(query.regionId);
+  const districtId = cleanId(query.districtId);
+  const neighborhoodId = cleanId(query.neighborhoodId);
   const match = { role: "user" };
 
   if (applyPeriod) {
@@ -366,7 +384,9 @@ function buildUserMatchStage(query, user, applyPeriod = true) {
   }
 
   if (user.role === "owner") {
-    if (districtId) {
+    if (neighborhoodId) {
+      match["address.neighborhood"] = new ObjectId(neighborhoodId);
+    } else if (districtId) {
       match["address.district"] = new ObjectId(districtId);
     } else if (regionId) {
       match["address.region"] = new ObjectId(regionId);
@@ -461,17 +481,20 @@ const getUserStats = async (req, res) => {
         const userMap = new Map();
         for (const r of reqCounts) {
           const id = String(r._id);
-          if (!userMap.has(id)) userMap.set(id, { _id: r._id, requests: 0, services: 0, msk: 0 });
+          if (!userMap.has(id))
+            userMap.set(id, { _id: r._id, requests: 0, services: 0, msk: 0 });
           userMap.get(id).requests = r.requests;
         }
         for (const s of svcCounts) {
           const id = String(s._id);
-          if (!userMap.has(id)) userMap.set(id, { _id: s._id, requests: 0, services: 0, msk: 0 });
+          if (!userMap.has(id))
+            userMap.set(id, { _id: s._id, requests: 0, services: 0, msk: 0 });
           userMap.get(id).services = s.services;
         }
         for (const m of mskCounts) {
           const id = String(m._id);
-          if (!userMap.has(id)) userMap.set(id, { _id: m._id, requests: 0, services: 0, msk: 0 });
+          if (!userMap.has(id))
+            userMap.set(id, { _id: m._id, requests: 0, services: 0, msk: 0 });
           userMap.get(id).msk = m.msk;
         }
 
@@ -487,7 +510,9 @@ const getUserStats = async (req, res) => {
           .populate("address.region", "name")
           .lean();
 
-        const usersById = Object.fromEntries(users.map((u) => [String(u._id), u]));
+        const usersById = Object.fromEntries(
+          users.map((u) => [String(u._id), u]),
+        );
 
         return sorted.map((u) => {
           const info = usersById[String(u._id)] || {};
@@ -546,7 +571,13 @@ const getUsersByRegion = async (req, res) => {
     const result = allRegions.map((r) => {
       const id = String(r._id);
       const c = countMap[id] || { total: 0, active: 0, inactive: 0 };
-      return { _id: r._id, name: r.name, total: c.total, active: c.active, inactive: c.inactive };
+      return {
+        _id: r._id,
+        name: r.name,
+        total: c.total,
+        active: c.active,
+        inactive: c.inactive,
+      };
     });
 
     res.json(result);
@@ -574,7 +605,11 @@ const getUsersByDistrict = async (req, res) => {
       match["address.district"] = new ObjectId(districtId);
 
       const [neighborhoods, userCounts] = await Promise.all([
-        Region.find({ type: "neighborhood", parent: districtId, isActive: true })
+        Region.find({
+          type: "neighborhood",
+          parent: districtId,
+          isActive: true,
+        })
           .select("_id name")
           .lean(),
         User.aggregate([
@@ -597,7 +632,13 @@ const getUsersByDistrict = async (req, res) => {
       const result = neighborhoods.map((n) => {
         const id = String(n._id);
         const c = countMap[id] || { total: 0, active: 0, inactive: 0 };
-        return { _id: n._id, name: n.name, total: c.total, active: c.active, inactive: c.inactive };
+        return {
+          _id: n._id,
+          name: n.name,
+          total: c.total,
+          active: c.active,
+          inactive: c.inactive,
+        };
       });
 
       return res.json(result);
@@ -630,7 +671,71 @@ const getUsersByDistrict = async (req, res) => {
     const result = districts.map((d) => {
       const id = String(d._id);
       const c = countMap[id] || { total: 0, active: 0, inactive: 0 };
-      return { _id: d._id, name: d.name, total: c.total, active: c.active, inactive: c.inactive };
+      return {
+        _id: d._id,
+        name: d.name,
+        total: c.total,
+        active: c.active,
+        inactive: c.inactive,
+      };
+    });
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
+/**
+ * GET /api/stats/by-neighborhood/:districtId
+ * Neighborhoods within a district with counts across all 3 modules.
+ */
+const getByNeighborhood = async (req, res) => {
+  try {
+    const { districtId } = req.params;
+    const match = buildMatchStage(req.query, req.user);
+
+    delete match["$or"];
+    match["address.district"] = new ObjectId(districtId);
+
+    const [neighborhoods, reqCounts, svcCounts, mskCounts] = await Promise.all([
+      Region.find({ type: "neighborhood", parent: districtId, isActive: true })
+        .select("_id name")
+        .lean(),
+      Request.aggregate([
+        { $match: { ...match, "address.neighborhood": { $exists: true } } },
+        { $group: { _id: "$address.neighborhood", count: { $sum: 1 } } },
+      ]),
+      ServiceReport.aggregate([
+        { $match: { ...match, "address.neighborhood": { $exists: true } } },
+        { $group: { _id: "$address.neighborhood", count: { $sum: 1 } } },
+      ]),
+      MskOrder.aggregate([
+        { $match: { ...match, "address.neighborhood": { $exists: true } } },
+        { $group: { _id: "$address.neighborhood", count: { $sum: 1 } } },
+      ]),
+    ]);
+
+    const toMap = (arr) =>
+      Object.fromEntries(arr.map((r) => [String(r._id), r.count]));
+
+    const reqMap = toMap(reqCounts);
+    const svcMap = toMap(svcCounts);
+    const mskMap = toMap(mskCounts);
+
+    const result = neighborhoods.map((n) => {
+      const id = String(n._id);
+      const requests = reqMap[id] || 0;
+      const services = svcMap[id] || 0;
+      const msk = mskMap[id] || 0;
+      return {
+        _id: n._id,
+        name: n.name,
+        requests,
+        services,
+        msk,
+        total: requests + services + msk,
+      };
     });
 
     res.json(result);
@@ -646,6 +751,7 @@ module.exports = {
   getMsk,
   getByRegion,
   getByDistrict,
+  getByNeighborhood,
   getUserStats,
   getUsersByRegion,
   getUsersByDistrict,
