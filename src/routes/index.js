@@ -20,5 +20,6 @@ router.use("/settings", require("./settings.routes"));
 router.use("/stats", require("./stats.routes"));
 router.use("/products", require("./product.routes"));
 router.use("/harvest", require("./harvest.routes"));
+router.use("/admin/users", require("./users-admin.routes"));
 
 module.exports = router;
