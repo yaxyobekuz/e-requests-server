@@ -22,12 +22,19 @@ function buildMatchStage(query, user) {
 
   if (user.role === "admin" && user.assignedRegion) {
     const rid = user.assignedRegion.region;
-    match["$or"] = [
-      { "address.region": rid },
-      { "address.district": rid },
-      { "address.neighborhood": rid },
-      { "address.street": rid },
-    ];
+    // Allow sub-filtering within the assigned region scope
+    if (neighborhoodId) {
+      match["address.neighborhood"] = new ObjectId(neighborhoodId);
+    } else if (districtId) {
+      match["address.district"] = new ObjectId(districtId);
+    } else {
+      match["$or"] = [
+        { "address.region": rid },
+        { "address.district": rid },
+        { "address.neighborhood": rid },
+        { "address.street": rid },
+      ];
+    }
   }
 
   if (user.role === "owner") {
@@ -375,12 +382,18 @@ function buildUserMatchStage(query, user, applyPeriod = true) {
 
   if (user.role === "admin" && user.assignedRegion) {
     const rid = user.assignedRegion.region;
-    match["$or"] = [
-      { "address.region": rid },
-      { "address.district": rid },
-      { "address.neighborhood": rid },
-      { "address.street": rid },
-    ];
+    if (neighborhoodId) {
+      match["address.neighborhood"] = new ObjectId(neighborhoodId);
+    } else if (districtId) {
+      match["address.district"] = new ObjectId(districtId);
+    } else {
+      match["$or"] = [
+        { "address.region": rid },
+        { "address.district": rid },
+        { "address.neighborhood": rid },
+        { "address.street": rid },
+      ];
+    }
   }
 
   if (user.role === "owner") {
