@@ -116,7 +116,7 @@ const getOverview = async (req, res) => {
       Request.countDocuments(match),
       ServiceReport.countDocuments(match),
       MskOrder.countDocuments(match),
-      User.countDocuments({ role: "user", isActive: true }),
+      User.countDocuments({ ...buildUserMatchStage(req.query, req.user, false), isActive: true }),
     ]);
 
     res.json({ requests, services, msk, users });
