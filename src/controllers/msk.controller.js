@@ -1,5 +1,10 @@
+const mongoose = require("mongoose");
 const MskCategory = require("../models/msk-category.model");
 const MskOrder = require("../models/msk-order.model");
+
+const {
+  Types: { ObjectId },
+} = mongoose;
 
 // ============ MSK CATEGORIES ============
 
@@ -195,15 +200,20 @@ const getAllOrders = async (req, res) => {
 
     if (req.user.role === "admin" && req.user.assignedRegion) {
       const rid = req.user.assignedRegion.region;
-      filter["$or"] = [
-        { "address.region": rid },
-        { "address.district": rid },
-        { "address.neighborhood": rid },
-        { "address.street": rid },
-      ];
-    }
-
-    if (regionId) {
+      const { districtId, neighborhoodId } = req.query;
+      if (neighborhoodId) {
+        filter["address.neighborhood"] = new ObjectId(neighborhoodId);
+      } else if (districtId) {
+        filter["address.district"] = new ObjectId(districtId);
+      } else {
+        filter["$or"] = [
+          { "address.region": rid },
+          { "address.district": rid },
+          { "address.neighborhood": rid },
+          { "address.street": rid },
+        ];
+      }
+    } else if (req.user.role === "owner" && regionId) {
       filter["$or"] = [
         { "address.region": regionId },
         { "address.district": regionId },
