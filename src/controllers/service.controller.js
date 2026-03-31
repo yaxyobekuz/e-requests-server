@@ -130,15 +130,20 @@ const getAllReports = async (req, res) => {
 
     if (req.user.role === "admin" && req.user.assignedRegion) {
       const rid = req.user.assignedRegion.region;
-      filter["$or"] = [
-        { "address.region": rid },
-        { "address.district": rid },
-        { "address.neighborhood": rid },
-        { "address.street": rid },
-      ];
-    }
-
-    if (regionId) {
+      const { districtId, neighborhoodId } = req.query;
+      if (neighborhoodId) {
+        filter["address.neighborhood"] = new mongoose.Types.ObjectId(neighborhoodId);
+      } else if (districtId) {
+        filter["address.district"] = new mongoose.Types.ObjectId(districtId);
+      } else {
+        filter["$or"] = [
+          { "address.region": rid },
+          { "address.district": rid },
+          { "address.neighborhood": rid },
+          { "address.street": rid },
+        ];
+      }
+    } else if (req.user.role === "owner" && regionId) {
       filter["$or"] = [
         { "address.region": regionId },
         { "address.district": regionId },
