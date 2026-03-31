@@ -51,6 +51,25 @@ function buildMatchStage(query, user) {
 }
 
 /**
+ * Admin scope filtrini saqlagan holda drill-down filtr qo'shadi.
+ * Agar $or mavjud bo'lsa, uni $and ichiga o'rab, qo'shimcha filtr bilan birlashtiradi.
+ *
+ * @param {object} match - buildMatchStage() yoki buildUserMatchStage() natijasi
+ * @param {object} extra - qo'shimcha filtr (masalan, { "address.region": id })
+ * @returns {object} yangilangan match
+ */
+function applyDrillDown(match, extra) {
+  if (match["$or"]) {
+    const orClause = match["$or"];
+    delete match["$or"];
+    match["$and"] = [{ $or: orClause }, extra];
+  } else {
+    Object.assign(match, extra);
+  }
+  return match;
+}
+
+/**
  * Shared trend aggregation pipeline.
  *
  * @param {object} Model - Mongoose model
@@ -254,6 +273,7 @@ const getMsk = async (req, res) => {
 const getByRegion = async (req, res) => {
   try {
     const match = buildMatchStage(req.query, req.user);
+    const isAdmin = req.user.role === "admin" && req.user.assignedRegion;
 
     const [allRegions, reqCounts, svcCounts, mskCounts] = await Promise.all([
       Region.find({ type: "region", isActive: true }).select("_id name").lean(),
@@ -278,7 +298,20 @@ const getByRegion = async (req, res) => {
     const svcMap = toMap(svcCounts);
     const mskMap = toMap(mskCounts);
 
-    const result = allRegions.map((r) => {
+    // Admin uchun faqat aggregation natijasida mavjud regionlarni ko'rsatish
+    const relevantIds = isAdmin
+      ? new Set([
+          ...reqCounts.map((r) => String(r._id)),
+          ...svcCounts.map((r) => String(r._id)),
+          ...mskCounts.map((r) => String(r._id)),
+        ])
+      : null;
+
+    const regions = isAdmin
+      ? allRegions.filter((r) => relevantIds.has(String(r._id)))
+      : allRegions;
+
+    const result = regions.map((r) => {
       const id = String(r._id);
       const requests = reqMap[id] || 0;
       const services = svcMap[id] || 0;
@@ -308,9 +341,7 @@ const getByDistrict = async (req, res) => {
     const { regionId } = req.params;
     const match = buildMatchStage(req.query, req.user);
 
-    // Override region filter to the specific parent region
-    delete match["$or"];
-    match["address.region"] = new ObjectId(regionId);
+    applyDrillDown(match, { "address.region": new ObjectId(regionId) });
 
     const [districts, reqCounts, svcCounts, mskCounts] = await Promise.all([
       Region.find({ type: "district", parent: regionId, isActive: true })
@@ -561,6 +592,7 @@ const getUserStats = async (req, res) => {
 const getUsersByRegion = async (req, res) => {
   try {
     const match = buildUserMatchStage(req.query, req.user, false);
+    const isAdmin = req.user.role === "admin" && req.user.assignedRegion;
 
     const [allRegions, userCounts] = await Promise.all([
       Region.find({ type: "region", isActive: true }).select("_id name").lean(),
@@ -581,7 +613,16 @@ const getUsersByRegion = async (req, res) => {
       userCounts.map((r) => [String(r._id), r]),
     );
 
-    const result = allRegions.map((r) => {
+    // Admin uchun faqat aggregation natijasida mavjud regionlarni ko'rsatish
+    const relevantIds = isAdmin
+      ? new Set(userCounts.map((r) => String(r._id)))
+      : null;
+
+    const regions = isAdmin
+      ? allRegions.filter((r) => relevantIds.has(String(r._id)))
+      : allRegions;
+
+    const result = regions.map((r) => {
       const id = String(r._id);
       const c = countMap[id] || { total: 0, active: 0, inactive: 0 };
       return {
@@ -610,12 +651,9 @@ const getUsersByDistrict = async (req, res) => {
     const { districtId } = req.query;
     const match = buildUserMatchStage(req.query, req.user, false);
 
-    // Remove $or if present, scope to the specific region
-    delete match["$or"];
-
     if (districtId) {
       // Drill down to neighborhoods within a district
-      match["address.district"] = new ObjectId(districtId);
+      applyDrillDown(match, { "address.district": new ObjectId(districtId) });
 
       const [neighborhoods, userCounts] = await Promise.all([
         Region.find({
@@ -658,7 +696,7 @@ const getUsersByDistrict = async (req, res) => {
     }
 
     // Districts within a region
-    match["address.region"] = new ObjectId(regionId);
+    applyDrillDown(match, { "address.region": new ObjectId(regionId) });
 
     const [districts, userCounts] = await Promise.all([
       Region.find({ type: "district", parent: regionId, isActive: true })
@@ -708,8 +746,7 @@ const getByNeighborhood = async (req, res) => {
     const { districtId } = req.params;
     const match = buildMatchStage(req.query, req.user);
 
-    delete match["$or"];
-    match["address.district"] = new ObjectId(districtId);
+    applyDrillDown(match, { "address.district": new ObjectId(districtId) });
 
     const [neighborhoods, reqCounts, svcCounts, mskCounts] = await Promise.all([
       Region.find({ type: "neighborhood", parent: districtId, isActive: true })
