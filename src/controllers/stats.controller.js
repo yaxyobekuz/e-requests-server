@@ -794,6 +794,242 @@ const getByNeighborhood = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/stats/users/demographics
+ * Foydalanuvchilar va xonadonlar soni hududlar bo'yicha guruhlanib qaytariladi.
+ * Drill-down: hech narsa→viloyatlar, regionId→tumanlar, districtId→mahallalar, neighborhoodId→ko'chalar.
+ *
+ * @param {object} req.query - { regionId?, districtId?, neighborhoodId? }
+ * @returns {{ summary: object, byLevel: Array }}
+ */
+const getUserDemographics = async (req, res) => {
+  try {
+    const { regionId, districtId, neighborhoodId } = req.query;
+    const baseMatch = buildUserMatchStage(req.query, req.user, false);
+
+    // Guruh darajasini va Region lookup filtrini aniqlash
+    let groupField, regionDocs;
+    if (neighborhoodId) {
+      groupField = "address.street";
+      regionDocs = await Region.find({
+        type: "street",
+        parent: neighborhoodId,
+        isActive: true,
+      })
+        .select("_id name")
+        .lean();
+    } else if (districtId) {
+      groupField = "address.neighborhood";
+      regionDocs = await Region.find({
+        type: "neighborhood",
+        parent: districtId,
+        isActive: true,
+      })
+        .select("_id name")
+        .lean();
+    } else if (regionId) {
+      groupField = "address.district";
+      regionDocs = await Region.find({
+        type: "district",
+        parent: regionId,
+        isActive: true,
+      })
+        .select("_id name")
+        .lean();
+    } else {
+      groupField = "address.region";
+      const isAdmin = req.user.role === "admin" && req.user.assignedRegion;
+      const allRegions = await Region.find({ type: "region", isActive: true })
+        .select("_id name")
+        .lean();
+
+      if (isAdmin) {
+        // Admin uchun: aggregation natijasidagi IDlar bilan cheklash
+        const tempMatch = { ...baseMatch };
+        const agg = await User.aggregate([
+          { $match: tempMatch },
+          { $group: { _id: "$address.region" } },
+        ]);
+        const relevantIds = new Set(agg.map((r) => String(r._id)));
+        regionDocs = allRegions.filter((r) => relevantIds.has(String(r._id)));
+      } else {
+        regionDocs = allRegions;
+      }
+    }
+
+    // Drill-down filtr qo'shish (admin $or ni saqlagan holda)
+    const match = { ...baseMatch };
+    if (neighborhoodId) {
+      applyDrillDown(match, {
+        "address.neighborhood": new ObjectId(neighborhoodId),
+      });
+    } else if (districtId) {
+      applyDrillDown(match, { "address.district": new ObjectId(districtId) });
+    } else if (regionId) {
+      applyDrillDown(match, { "address.region": new ObjectId(regionId) });
+    }
+
+    // Xonadonlar uchun alohida match (houseNumber bo'sh emas)
+    const householdMatch = { ...match, "address.houseNumber": { $nin: [null, ""] } };
+
+    const [
+      totalUsers,
+      activeUsers,
+      userCounts,
+      householdCounts,
+      householdSummary,
+    ] = await Promise.all([
+      // Jami foydalanuvchilar
+      User.countDocuments(match),
+
+      // Faol foydalanuvchilar
+      User.countDocuments({ ...match, isActive: true }),
+
+      // Foydalanuvchilar hudud bo'yicha
+      User.aggregate([
+        { $match: match },
+        {
+          $group: {
+            _id: `$${groupField}`,
+            totalUsers: { $sum: 1 },
+            activeUsers: { $sum: { $cond: ["$isActive", 1, 0] } },
+          },
+        },
+      ]),
+
+      // Xonadonlar soni hudud bo'yicha (2-bosqichli aggregation)
+      User.aggregate([
+        { $match: householdMatch },
+        // 1-bosqich: noyob xonadon kombinatsiyasi
+        {
+          $group: {
+            _id: {
+              levelId: `$${groupField}`,
+              region: "$address.region",
+              district: "$address.district",
+              neighborhood: "$address.neighborhood",
+              street: "$address.street",
+              houseNumber: "$address.houseNumber",
+              apartment: {
+                $cond: [
+                  { $eq: ["$address.houseType", "apartment"] },
+                  "$address.apartment",
+                  null,
+                ],
+              },
+              houseType: "$address.houseType",
+            },
+          },
+        },
+        // 2-bosqich: har bir hudud uchun noyob xonadonlarni sanash
+        {
+          $group: {
+            _id: "$_id.levelId",
+            totalHouseholds: { $sum: 1 },
+            privateHouseholds: {
+              $sum: {
+                $cond: [{ $eq: ["$_id.houseType", "private"] }, 1, 0],
+              },
+            },
+            apartmentHouseholds: {
+              $sum: {
+                $cond: [{ $eq: ["$_id.houseType", "apartment"] }, 1, 0],
+              },
+            },
+          },
+        },
+      ]),
+
+      // Global xonadonlar summary
+      User.aggregate([
+        { $match: householdMatch },
+        {
+          $group: {
+            _id: {
+              region: "$address.region",
+              district: "$address.district",
+              neighborhood: "$address.neighborhood",
+              street: "$address.street",
+              houseNumber: "$address.houseNumber",
+              apartment: {
+                $cond: [
+                  { $eq: ["$address.houseType", "apartment"] },
+                  "$address.apartment",
+                  null,
+                ],
+              },
+              houseType: "$address.houseType",
+            },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            private: {
+              $sum: {
+                $cond: [{ $eq: ["$_id.houseType", "private"] }, 1, 0],
+              },
+            },
+            apartment: {
+              $sum: {
+                $cond: [{ $eq: ["$_id.houseType", "apartment"] }, 1, 0],
+              },
+            },
+          },
+        },
+      ]),
+    ]);
+
+    const userMap = Object.fromEntries(
+      userCounts.map((r) => [String(r._id), r]),
+    );
+    const householdMap = Object.fromEntries(
+      householdCounts.map((r) => [String(r._id), r]),
+    );
+
+    const byLevel = regionDocs.map((doc) => {
+      const id = String(doc._id);
+      const u = userMap[id] || { totalUsers: 0, activeUsers: 0 };
+      const h = householdMap[id] || {
+        totalHouseholds: 0,
+        privateHouseholds: 0,
+        apartmentHouseholds: 0,
+      };
+      return {
+        _id: doc._id,
+        name: doc.name,
+        totalUsers: u.totalUsers,
+        activeUsers: u.activeUsers,
+        inactiveUsers: u.totalUsers - u.activeUsers,
+        totalHouseholds: h.totalHouseholds,
+        privateHouseholds: h.privateHouseholds,
+        apartmentHouseholds: h.apartmentHouseholds,
+        activityRate:
+          u.totalUsers > 0
+            ? Math.round((u.activeUsers / u.totalUsers) * 100)
+            : 0,
+      };
+    });
+
+    const hhSum = householdSummary[0] || { total: 0, private: 0, apartment: 0 };
+
+    res.json({
+      summary: {
+        totalUsers,
+        activeUsers,
+        inactiveUsers: totalUsers - activeUsers,
+        totalHouseholds: hhSum.total,
+        privateHouseholds: hhSum.private,
+        apartmentHouseholds: hhSum.apartment,
+      },
+      byLevel,
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Serverda xatolik yuz berdi" });
+  }
+};
+
 module.exports = {
   getOverview,
   getRequests,
@@ -805,4 +1041,5 @@ module.exports = {
   getUserStats,
   getUsersByRegion,
   getUsersByDistrict,
+  getUserDemographics,
 };

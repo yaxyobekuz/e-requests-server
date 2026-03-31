@@ -11,6 +11,7 @@ const {
   getUserStats,
   getUsersByRegion,
   getUsersByDistrict,
+  getUserDemographics,
 } = require("../controllers/stats.controller");
 
 const router = Router();
@@ -21,6 +22,7 @@ router.get("/requests", ...guard, getRequests);
 router.get("/services", ...guard, getServices);
 router.get("/msk", ...guard, getMsk);
 router.get("/users", ...guard, getUserStats);
+router.get("/users/demographics", ...guard, getUserDemographics);
 router.get("/users/by-region", ...guard, getUsersByRegion);
 router.get("/users/by-district/:regionId", ...guard, getUsersByDistrict);
 router.get("/by-region", ...guard, getByRegion);
